@@ -1,0 +1,22 @@
+[2026-01-27T04:34:49Z INFO  evolution_sim] Evolution Simulator starting...
+[2026-01-27T04:34:49Z INFO  wgpu_hal::vulkan::instance] Debug utils not enabled: debug_utils_user_data not passed to Instance::from_raw
+[2026-01-27T04:34:49Z INFO  wgpu_core::instance] Adapter Vulkan AdapterInfo { name: "AMD Radeon(TM) RX Vega 11 Graphics", vendor: 4098, device: 5597, device_type: IntegratedGpu, driver: "AMD proprietary driver", driver_info: "19.12.2", backend: Vulkan }
+[2026-01-27T04:34:49Z INFO  evolution_sim::app] Using GPU: AMD Radeon(TM) RX Vega 11 Graphics
+[2026-01-27T04:34:49Z INFO  evolution_sim::simulation::world] Created world 512x512 with 40 food patches
+[2026-01-27T04:34:49Z INFO  evolution_sim::simulation] Spawned 500 initial organisms
+[2026-01-27T04:34:49Z INFO  evolution_sim::simulation::world] Created world 512x512 with 40 food patches
+[2026-01-27T04:34:49Z INFO  evolution_sim::simulation] Spawned 500 initial organisms
+[2026-01-27T04:34:49Z WARN  egui_wgpu::renderer] Detected a linear (sRGBA aware) framebuffer Bgra8UnormSrgb. egui prefers Rgba8Unorm or Bgra8Unorm
+[2026-01-27T04:34:49Z INFO  naga::back::spv::writer] Skip function Some("position_from_screen")
+[2026-01-27T04:34:49Z INFO  evolution_sim::app] Initialized with 500 organisms in 512x512 world
+[2026-01-27T04:34:49Z INFO  evolution_sim] Application initialized
+[2026-01-27T04:34:49Z INFO  evolution_sim::compute::pipeline] Tick 0: pop=500, avg_energy=80.0, max_gen=0, repro_ready=0, sample_energies=[80.0, 80.0, 80.0, 80.0, 80.0]
+[2026-01-27T04:34:51Z INFO  evolution_sim::compute::pipeline] Tick 60: pop=500, avg_energy=104.6, max_gen=0, repro_ready=0, sample_energies=[98.68138, 72.91952, 78.21611, 103.4268, 128.68744]
+[2026-01-27T04:34:53Z INFO  evolution_sim::compute::pipeline] Tick 120: pop=500, avg_energy=124.2, max_gen=0, repro_ready=0, sample_energies=[119.41487, 77.727005, 80.92931, 124.20863, 150.0]
+[2026-01-27T04:34:55Z INFO  evolution_sim::compute::pipeline] Tick 180: pop=500, avg_energy=143.8, max_gen=0, repro_ready=0, sample_energies=[149.49355, 130.42786, 107.098114, 150.0, 150.0]
+[2026-01-27T04:34:57Z INFO  evolution_sim::compute::pipeline] Tick 240: pop=500, avg_energy=147.8, max_gen=0, repro_ready=0, sample_energies=[149.49356, 150.0, 146.99286, 150.0, 150.0]
+[2026-01-27T04:34:58Z INFO  evolution_sim::compute::pipeline] Tick 300: pop=500, avg_energy=149.1, max_gen=0, repro_ready=0, sample_energies=[150.0, 150.0, 150.0, 150.0, 150.0]
+[2026-01-27T04:34:59Z INFO  evolution_sim] Auto-exit timeout reached, shutting down
+[2026-01-27T04:34:59Z INFO  evolution_sim] Auto-exit timeout reached, shutting down
+[2026-01-27T04:34:59Z INFO  evolution_sim] Auto-exit timeout reached, shutting down
+[2026-01-27T04:34:59Z INFO  evolution_sim] Auto-exit timeout reached, shutting down
