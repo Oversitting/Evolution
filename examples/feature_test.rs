@@ -126,10 +126,10 @@ fn test_config_loading() -> Result<(), String> {
 fn test_organism_buffer_sizes() -> Result<(), String> {
     use evolution_sim::simulation::OrganismGpu;
     
-    // OrganismGpu should be 56 bytes (14 * 4 bytes)
+    // OrganismGpu includes species and morphology state.
     let size = std::mem::size_of::<OrganismGpu>();
-    if size != 56 {
-        return Err(format!("OrganismGpu size is {} bytes, expected 56", size));
+    if size != 72 {
+        return Err(format!("OrganismGpu size is {} bytes, expected 72", size));
     }
     
     Ok(())
@@ -196,12 +196,13 @@ fn test_nn_dimensions() -> Result<(), String> {
 }
 
 fn test_nn_forward_pass() -> Result<(), String> {
+    use evolution_sim::config::MorphologyConfig;
     use evolution_sim::simulation::genome::Genome;
     use rand::SeedableRng;
     use rand_xoshiro::Xoshiro256PlusPlus;
     
     let mut rng = Xoshiro256PlusPlus::seed_from_u64(42);
-    let genome = Genome::new_random(&mut rng);
+    let genome = Genome::new_random(&mut rng, &MorphologyConfig::default());
     
     // Verify all weights are in reasonable range after Xavier init
     let max_weight = genome.weights_l1.iter()
@@ -217,15 +218,17 @@ fn test_nn_forward_pass() -> Result<(), String> {
 }
 
 fn test_nn_mutation() -> Result<(), String> {
+    use evolution_sim::config::MorphologyConfig;
     use evolution_sim::simulation::genome::Genome;
     use rand::SeedableRng;
     use rand_xoshiro::Xoshiro256PlusPlus;
     
     let mut rng = Xoshiro256PlusPlus::seed_from_u64(42);
-    let parent = Genome::new_random(&mut rng);
+    let morph = MorphologyConfig::default();
+    let parent = Genome::new_random(&mut rng, &morph);
     
     // Clone and mutate with 100% rate
-    let child = parent.clone_and_mutate(1.0, 0.1, &mut rng);
+    let child = parent.clone_and_mutate(1.0, 0.1, &morph, &mut rng);
     
     // At least some weights should be different
     let mut differences = 0;
@@ -367,18 +370,20 @@ fn test_spawn_logic() -> Result<(), String> {
 }
 
 fn test_genome_cloning() -> Result<(), String> {
+    use evolution_sim::config::MorphologyConfig;
     use evolution_sim::simulation::genome::GenomePool;
     use rand::SeedableRng;
     use rand_xoshiro::Xoshiro256PlusPlus;
     
     let mut rng = Xoshiro256PlusPlus::seed_from_u64(123);
     let mut pool = GenomePool::new(100);
+    let morph = MorphologyConfig::default();
     
     // Create parent genome
-    pool.create_random_at(0, &mut rng);
+    pool.create_random_at(0, &morph, &mut rng);
     
     // Clone and mutate to child slot
-    pool.clone_and_mutate_at(1, 0, 0.0, 0.0, &mut rng);  // 0% mutation
+    pool.clone_and_mutate_at(1, 0, 0.0, 0.0, &morph, &mut rng);  // 0% mutation
     
     // With 0% mutation, child should be identical
     let parent = pool.get(0).unwrap();
@@ -490,6 +495,10 @@ fn test_serialization() -> Result<(), String> {
             cooldown: 0,
             reproduce_signal: 0.3,
             species_id: 1,
+            morph_size: 1.0,
+            morph_speed_mult: 1.0,
+            morph_vision_mult: 1.0,
+            morph_metabolism: 1.0,
         }],
         genomes: vec![SavedGenome {
             weights_l1: vec![0.0; 320],
@@ -497,6 +506,10 @@ fn test_serialization() -> Result<(), String> {
             weights_l2: vec![0.0; 96],
             biases_l2: vec![0.0; 6],
             alive: true,
+            morph_size: 1.0,
+            morph_speed_mult: 1.0,
+            morph_vision_mult: 1.0,
+            morph_metabolism: 1.0,
         }],
         food: vec![0.0; 100],
         world_width: 10,

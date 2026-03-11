@@ -31,8 +31,6 @@ fn test_reproduction_conditions() {
     let threshold = 80.0f32;
     let signal_min = 0.3f32;
     let min_age = 100u32;
-    let cooldown_ticks = 100u32;
-    let cost = 50.0f32;
     
     // Test cases: (energy, signal, age, cooldown, expected_can_reproduce)
     let test_cases = [

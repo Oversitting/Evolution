@@ -372,7 +372,7 @@ fn test_morphology() -> Result<(), String> {
     new_morph.mutate(&config.morphology, &mut rng);
     
     // After mutation, at least one trait should have changed (with high probability)
-    let changed = (new_morph.size - morph.size).abs() > 0.001 
+    let _changed = (new_morph.size - morph.size).abs() > 0.001 
         || (new_morph.speed_mult - morph.speed_mult).abs() > 0.001
         || (new_morph.vision_mult - morph.vision_mult).abs() > 0.001
         || (new_morph.metabolism - morph.metabolism).abs() > 0.001;
@@ -393,6 +393,8 @@ fn test_sexual_reproduction() -> Result<(), String> {
     config.seed = Some(123);
     config.reproduction.sexual_enabled = true;
     config.reproduction.crossover_ratio = 0.5;
+    config.mutation.rate = 0.0;
+    config.mutation.strength = 0.0;
     
     let mut rng = Xoshiro256PlusPlus::seed_from_u64(123);
     let mut genomes = GenomePool::new(10);
@@ -405,15 +407,12 @@ fn test_sexual_reproduction() -> Result<(), String> {
     let parent2 = genomes.get(1).ok_or("No genome 1")?;
     
     // Get some weights from parents
-    let p1_w0 = parent1.weights_l1[0];
-    let p2_w0 = parent2.weights_l1[0];
-    
     // Crossover and mutate
     let child = parent1.crossover_and_mutate(
         parent2,
+        config.reproduction.crossover_ratio,
         config.mutation.rate,
         config.mutation.strength,
-        config.reproduction.crossover_ratio,
         &config.morphology,
         &mut rng,
     );
@@ -427,13 +426,15 @@ fn test_sexual_reproduction() -> Result<(), String> {
         return Err("Child has no biases_l1".to_string());
     }
     
-    // Morphology should be inherited (averaged) and possibly mutated
-    let expected_size = (parent1.morphology.size + parent2.morphology.size) / 2.0;
-    if (child.morphology.size - expected_size).abs() > 2.0 {
-        // Allow for mutation, but should be reasonably close
+    // Morphology is inherited by uniform crossover when mutation is disabled.
+    let inherited_size = child.morphology.size == parent1.morphology.size
+        || child.morphology.size == parent2.morphology.size;
+    if !inherited_size {
         return Err(format!(
-            "Child morph size {} far from expected avg {}",
-            child.morphology.size, expected_size
+            "Child morph size {} did not match either parent ({}, {})",
+            child.morphology.size,
+            parent1.morphology.size,
+            parent2.morphology.size
         ));
     }
     

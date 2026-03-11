@@ -17,6 +17,7 @@ pub const BIASES_L2: usize = OUTPUT_DIM;               // 6
 pub const TOTAL_PARAMS: usize = WEIGHTS_L1 + BIASES_L1 + WEIGHTS_L2 + BIASES_L2; // 438
 
 /// Morphology trait count (size, speed_mult, vision_mult, metabolism)
+#[allow(dead_code)]
 pub const MORPH_TRAITS: usize = 4;
 
 /// Morphology traits - evolvable physical characteristics
@@ -86,11 +87,13 @@ impl MorphTraits {
     }
     
     /// Convert to flat array for GPU upload
+    #[allow(dead_code)]
     pub fn to_array(&self) -> [f32; MORPH_TRAITS] {
         [self.size, self.speed_mult, self.vision_mult, self.metabolism]
     }
     
     /// Create from flat array
+    #[allow(dead_code)]
     pub fn from_array(arr: [f32; MORPH_TRAITS]) -> Self {
         Self {
             size: arr[0],
@@ -139,6 +142,7 @@ impl Genome {
     }
     
     /// Create random genome without morphology config (uses defaults)
+    #[allow(dead_code)]
     pub fn new_random_simple<R: Rng>(rng: &mut R) -> Self {
         Self {
             weights_l1: xavier_init(INPUT_DIM, HIDDEN_DIM, rng),
@@ -278,6 +282,7 @@ impl Genome {
         flat
     }
 }
+        #[allow(dead_code)]
 
 /// Xavier uniform initialization
 fn xavier_init<R: Rng>(fan_in: usize, fan_out: usize, rng: &mut R) -> Vec<f32> {
@@ -287,6 +292,7 @@ fn xavier_init<R: Rng>(fan_in: usize, fan_out: usize, rng: &mut R) -> Vec<f32> {
 }
 
 /// Pool of genomes with ID management
+        #[allow(dead_code)]
 pub struct GenomePool {
     genomes: Vec<Genome>,
 }
@@ -422,6 +428,7 @@ impl GenomePool {
     
     /// Get all morphology traits for GPU buffer
     /// Layout per genome: size, speed_mult, vision_mult, metabolism (4 floats)
+    #[allow(dead_code)]
     pub fn morphology_buffer(&self) -> Vec<f32> {
         let mut buffer = Vec::with_capacity(self.genomes.len() * MORPH_TRAITS);
         for genome in &self.genomes {
@@ -432,6 +439,7 @@ impl GenomePool {
     }
     
     /// Get morphology traits for a single genome
+    #[allow(dead_code)]
     pub fn get_morphology_flat(&self, id: u32) -> Option<[f32; MORPH_TRAITS]> {
         self.genomes.get(id as usize).map(|g| g.morphology.to_array())
     }
@@ -451,5 +459,113 @@ impl GenomePool {
     /// Count alive genomes
     pub fn count(&self) -> u32 {
         self.genomes.iter().filter(|g| g.alive).count() as u32
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::SeedableRng;
+    use rand_xoshiro::Xoshiro256PlusPlus;
+
+    fn fixed_genome(value: f32, morphology: MorphTraits) -> Genome {
+        Genome {
+            weights_l1: vec![value; WEIGHTS_L1],
+            biases_l1: vec![value; BIASES_L1],
+            weights_l2: vec![value; WEIGHTS_L2],
+            biases_l2: vec![value; BIASES_L2],
+            morphology,
+            alive: true,
+        }
+    }
+
+    #[test]
+    fn crossover_ratio_one_uses_primary_parent_without_mutation() {
+        let morph_config = MorphologyConfig {
+            mutation_rate: 0.0,
+            mutation_strength: 0.0,
+            ..MorphologyConfig::default()
+        };
+        let parent = fixed_genome(
+            1.0,
+            MorphTraits {
+                size: 0.8,
+                speed_mult: 0.9,
+                vision_mult: 1.1,
+                metabolism: 1.2,
+            },
+        );
+        let mate = fixed_genome(
+            2.0,
+            MorphTraits {
+                size: 1.8,
+                speed_mult: 1.4,
+                vision_mult: 1.3,
+                metabolism: 0.8,
+            },
+        );
+        let mut rng = Xoshiro256PlusPlus::seed_from_u64(7);
+
+        let child = parent.crossover_and_mutate(&mate, 1.0, 0.0, 0.0, &morph_config, &mut rng);
+
+        assert!(child.weights_l1.iter().all(|&weight| weight == 1.0));
+        assert!(child.biases_l1.iter().all(|&weight| weight == 1.0));
+        assert_eq!(child.morphology.size, parent.morphology.size);
+        assert_eq!(child.morphology.speed_mult, parent.morphology.speed_mult);
+        assert_eq!(child.morphology.vision_mult, parent.morphology.vision_mult);
+        assert_eq!(child.morphology.metabolism, parent.morphology.metabolism);
+    }
+
+    #[test]
+    fn crossover_ratio_zero_uses_mate_without_mutation() {
+        let morph_config = MorphologyConfig {
+            mutation_rate: 0.0,
+            mutation_strength: 0.0,
+            ..MorphologyConfig::default()
+        };
+        let parent = fixed_genome(1.0, MorphTraits::default_traits());
+        let mate = fixed_genome(
+            2.0,
+            MorphTraits {
+                size: 1.7,
+                speed_mult: 1.4,
+                vision_mult: 1.2,
+                metabolism: 0.9,
+            },
+        );
+        let mut rng = Xoshiro256PlusPlus::seed_from_u64(11);
+
+        let child = parent.crossover_and_mutate(&mate, 0.0, 0.0, 0.0, &morph_config, &mut rng);
+
+        assert!(child.weights_l1.iter().all(|&weight| weight == 2.0));
+        assert!(child.biases_l2.iter().all(|&weight| weight == 2.0));
+        assert_eq!(child.morphology.size, mate.morphology.size);
+        assert_eq!(child.morphology.speed_mult, mate.morphology.speed_mult);
+        assert_eq!(child.morphology.vision_mult, mate.morphology.vision_mult);
+        assert_eq!(child.morphology.metabolism, mate.morphology.metabolism);
+    }
+
+    #[test]
+    fn morphology_mutation_respects_config_bounds() {
+        let config = MorphologyConfig {
+            mutation_rate: 1.0,
+            mutation_strength: 10.0,
+            ..MorphologyConfig::default()
+        };
+        let mut rng = Xoshiro256PlusPlus::seed_from_u64(13);
+        let mut traits = MorphTraits {
+            size: config.max_size,
+            speed_mult: config.min_speed_mult,
+            vision_mult: config.max_vision_mult,
+            metabolism: config.min_metabolism,
+        };
+
+        for _ in 0..64 {
+            traits.mutate(&config, &mut rng);
+            assert!((config.min_size..=config.max_size).contains(&traits.size));
+            assert!((config.min_speed_mult..=config.max_speed_mult).contains(&traits.speed_mult));
+            assert!((config.min_vision_mult..=config.max_vision_mult).contains(&traits.vision_mult));
+            assert!((config.min_metabolism..=config.max_metabolism).contains(&traits.metabolism));
+        }
     }
 }

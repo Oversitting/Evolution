@@ -164,6 +164,63 @@ pub struct SaveState {
     pub world_height: u32,
 }
 
+/// Curated genome entry persisted across runs for smarter future founders.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SurvivorEntry {
+    pub genome: SavedGenome,
+    pub generation: u32,
+    pub offspring_count: u32,
+    pub age: u32,
+    pub energy: f32,
+    pub species_id: u32,
+    pub score: f32,
+}
+
+/// Persistent survivor bank used to seed future runs with proven founders.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SurvivorBank {
+    pub version: u32,
+    pub source_tick: u64,
+    pub entries: Vec<SurvivorEntry>,
+}
+
+/// Human-readable founder record with evaluation metadata.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct FounderRecord {
+    #[serde(default = "default_founder_enabled")]
+    pub enabled: bool,
+    pub label: String,
+    pub source: String,
+    pub genome: SavedGenome,
+    pub generation: u32,
+    pub offspring_count: u32,
+    pub age: u32,
+    pub energy: f32,
+    pub species_id: u32,
+    pub score: f32,
+    #[serde(default)]
+    pub evaluations: u32,
+    #[serde(default)]
+    pub successes: u32,
+    #[serde(default)]
+    pub best_steps_to_food: u32,
+    #[serde(default)]
+    pub average_steps_to_food: f32,
+    #[serde(default)]
+    pub notes: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+/// Human-readable founder pool for explicit inspection and curation.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct FounderPool {
+    pub version: u32,
+    pub source_tick: u64,
+    pub description: String,
+    pub entries: Vec<FounderRecord>,
+}
+
 impl SaveState {
     /// Current save format version
     pub const VERSION: u32 = 1;
@@ -199,6 +256,212 @@ impl SaveState {
     }
 }
 
+impl SurvivorBank {
+    pub const VERSION: u32 = 1;
+
+    pub fn quality_score(&self) -> f32 {
+        self.entries
+            .iter()
+            .take(64)
+            .map(|entry| entry.score)
+            .sum()
+    }
+
+    #[allow(dead_code)]
+    pub fn is_stronger_than(&self, other: &Self) -> bool {
+        self.quality_score() > other.quality_score()
+    }
+
+    pub fn save_to_file(&self, path: &Path) -> Result<(), SaveError> {
+        let file = File::create(path)
+            .map_err(|e| SaveError::Io(e.to_string()))?;
+        let writer = BufWriter::new(file);
+        bincode::serialize_into(writer, self)
+            .map_err(|e| SaveError::Serialize(e.to_string()))?;
+        log::info!(
+            "Saved survivor bank to {:?} (tick {}, entries={})",
+            path,
+            self.source_tick,
+            self.entries.len()
+        );
+        Ok(())
+    }
+
+    pub fn load_from_file(path: &Path) -> Result<Self, SaveError> {
+        let file = File::open(path)
+            .map_err(|e| SaveError::Io(e.to_string()))?;
+        let reader = BufReader::new(file);
+        let bank: SurvivorBank = bincode::deserialize_from(reader)
+            .map_err(|e| SaveError::Deserialize(e.to_string()))?;
+
+        if bank.version != Self::VERSION {
+            return Err(SaveError::VersionMismatch {
+                expected: Self::VERSION,
+                found: bank.version,
+            });
+        }
+
+        log::info!(
+            "Loaded survivor bank from {:?} (tick {}, entries={})",
+            path,
+            bank.source_tick,
+            bank.entries.len()
+        );
+        Ok(bank)
+    }
+}
+
+impl FounderPool {
+    pub const VERSION: u32 = 1;
+
+    pub fn quality_score(&self) -> f32 {
+        self.entries
+            .iter()
+            .filter(|entry| entry.enabled)
+            .take(64)
+            .map(|entry| entry.score)
+            .sum()
+    }
+
+    #[allow(dead_code)]
+    pub fn is_stronger_than(&self, other: &Self) -> bool {
+        self.quality_score() > other.quality_score()
+    }
+
+    pub fn save_to_file(&self, path: &Path) -> Result<(), SaveError> {
+        let file = File::create(path)
+            .map_err(|e| SaveError::Io(e.to_string()))?;
+        let writer = BufWriter::new(file);
+        serde_json::to_writer_pretty(writer, self)
+            .map_err(|e| SaveError::Serialize(e.to_string()))?;
+        log::info!(
+            "Saved founder pool to {:?} (tick {}, entries={})",
+            path,
+            self.source_tick,
+            self.entries.len()
+        );
+        Ok(())
+    }
+
+    pub fn load_from_file(path: &Path) -> Result<Self, SaveError> {
+        let file = File::open(path)
+            .map_err(|e| SaveError::Io(e.to_string()))?;
+        let reader = BufReader::new(file);
+        let pool: FounderPool = serde_json::from_reader(reader)
+            .map_err(|e| SaveError::Deserialize(e.to_string()))?;
+
+        if pool.version != Self::VERSION {
+            return Err(SaveError::VersionMismatch {
+                expected: Self::VERSION,
+                found: pool.version,
+            });
+        }
+
+        log::info!(
+            "Loaded founder pool from {:?} (tick {}, entries={})",
+            path,
+            pool.source_tick,
+            pool.entries.len()
+        );
+        Ok(pool)
+    }
+
+    pub fn from_survivor_bank(bank: &SurvivorBank, source: &str, description: &str) -> Self {
+        let entries = bank
+            .entries
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| FounderRecord {
+                enabled: true,
+                label: format!("{}-{:03}", source, index + 1),
+                source: source.to_string(),
+                genome: entry.genome.clone(),
+                generation: entry.generation,
+                offspring_count: entry.offspring_count,
+                age: entry.age,
+                energy: entry.energy,
+                species_id: entry.species_id,
+                score: entry.score,
+                evaluations: 0,
+                successes: 0,
+                best_steps_to_food: 0,
+                average_steps_to_food: 0.0,
+                notes: String::new(),
+                tags: vec![source.to_string()],
+            })
+            .collect();
+
+        Self {
+            version: Self::VERSION,
+            source_tick: bank.source_tick,
+            description: description.to_string(),
+            entries,
+        }
+    }
+
+    pub fn to_survivor_entries(&self, limit: usize) -> Vec<SurvivorEntry> {
+        let mut entries: Vec<SurvivorEntry> = self
+            .entries
+            .iter()
+            .filter(|entry| entry.enabled)
+            .map(|entry| SurvivorEntry {
+                genome: entry.genome.clone(),
+                generation: entry.generation,
+                offspring_count: entry.offspring_count,
+                age: entry.age,
+                energy: entry.energy,
+                species_id: entry.species_id,
+                score: entry.score,
+            })
+            .collect();
+        entries.sort_by(|left, right| {
+            right
+                .score
+                .partial_cmp(&left.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        entries.truncate(limit);
+        entries
+    }
+}
+
+fn default_founder_enabled() -> bool { true }
+
+fn path_uses_founder_pool(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| extension.eq_ignore_ascii_case("json"))
+        .unwrap_or(false)
+}
+
+pub fn load_bootstrap_entries(path: &Path, limit: usize) -> Result<Vec<SurvivorEntry>, SaveError> {
+    if path_uses_founder_pool(path) {
+        Ok(FounderPool::load_from_file(path)?.to_survivor_entries(limit))
+    } else {
+        Ok(SurvivorBank::load_from_file(path)?
+            .entries
+            .into_iter()
+            .take(limit)
+            .collect())
+    }
+}
+
+pub fn load_bootstrap_quality_score(path: &Path) -> Result<f32, SaveError> {
+    if path_uses_founder_pool(path) {
+        Ok(FounderPool::load_from_file(path)?.quality_score())
+    } else {
+        Ok(SurvivorBank::load_from_file(path)?.quality_score())
+    }
+}
+
+pub fn save_bootstrap_bank(path: &Path, bank: &SurvivorBank, source: &str, description: &str) -> Result<(), SaveError> {
+    if path_uses_founder_pool(path) {
+        FounderPool::from_survivor_bank(bank, source, description).save_to_file(path)
+    } else {
+        bank.save_to_file(path)
+    }
+}
+
 /// Errors that can occur during save/load
 #[derive(Debug)]
 pub enum SaveError {
@@ -222,3 +485,101 @@ impl std::fmt::Display for SaveError {
 }
 
 impl std::error::Error for SaveError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_genome() -> SavedGenome {
+        SavedGenome {
+            weights_l1: vec![0.1, 0.2],
+            biases_l1: vec![0.3],
+            weights_l2: vec![0.4, 0.5],
+            biases_l2: vec![0.6],
+            alive: true,
+            morph_size: 1.0,
+            morph_speed_mult: 1.0,
+            morph_vision_mult: 1.0,
+            morph_metabolism: 1.0,
+        }
+    }
+
+    fn founder(label: &str, score: f32, enabled: bool) -> FounderRecord {
+        FounderRecord {
+            enabled,
+            label: label.to_string(),
+            source: "test".to_string(),
+            genome: sample_genome(),
+            generation: 1,
+            offspring_count: 0,
+            age: 10,
+            energy: 50.0,
+            species_id: 7,
+            score,
+            evaluations: 10,
+            successes: 5,
+            best_steps_to_food: 12,
+            average_steps_to_food: 18.0,
+            notes: String::new(),
+            tags: vec!["tag".to_string()],
+        }
+    }
+
+    #[test]
+    fn founder_pool_quality_score_ignores_disabled_entries() {
+        let pool = FounderPool {
+            version: FounderPool::VERSION,
+            source_tick: 42,
+            description: "test".to_string(),
+            entries: vec![
+                founder("enabled-a", 100.0, true),
+                founder("disabled", 5000.0, false),
+                founder("enabled-b", 80.0, true),
+            ],
+        };
+
+        assert_eq!(pool.quality_score(), 180.0);
+    }
+
+    #[test]
+    fn founder_pool_bootstrap_entries_only_include_enabled_founders() {
+        let pool = FounderPool {
+            version: FounderPool::VERSION,
+            source_tick: 42,
+            description: "test".to_string(),
+            entries: vec![
+                founder("enabled-low", 10.0, true),
+                founder("disabled-high", 1000.0, false),
+                founder("enabled-high", 50.0, true),
+            ],
+        };
+
+        let entries = pool.to_survivor_entries(8);
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].score, 50.0);
+        assert_eq!(entries[1].score, 10.0);
+        assert!(entries.iter().all(|entry| entry.score != 1000.0));
+    }
+
+    #[test]
+    fn founder_pool_bootstrap_limit_applies_after_enabled_filtering() {
+        let pool = FounderPool {
+            version: FounderPool::VERSION,
+            source_tick: 42,
+            description: "test".to_string(),
+            entries: vec![
+                founder("one", 10.0, true),
+                founder("two", 40.0, true),
+                founder("three", 20.0, true),
+                founder("disabled", 999.0, false),
+            ],
+        };
+
+        let entries = pool.to_survivor_entries(2);
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].score, 40.0);
+        assert_eq!(entries[1].score, 20.0);
+    }
+}

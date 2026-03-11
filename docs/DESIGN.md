@@ -1,9 +1,9 @@
 # Evolution Simulator: Technical Design Specification
 
-**Version**: 1.5 (Phase 6 Partial)  
+**Version**: 1.8  
 **Created**: January 26, 2026  
-**Last Updated**: February 2026  
-**Status**: Morphology, Sexual Reproduction, Biomes Implemented
+**Last Updated**: March 2026  
+**Status**: Phase 6 features implemented; verification refreshed and documentation aligned to code
 
 ---
 
@@ -76,11 +76,17 @@ pub struct Organism {
     pub offspring_count: u32,    // Number of children produced
     pub parent_id: u32,          // Parent organism ID (or u32::MAX if none)
     
-    // Neural network output (8 bytes)
+    // Neural network output / species (8 bytes)
     pub reproduce_signal: f32,   // Reproduction willingness from neural network
-    pub _pad: u32,               // Padding for 8-byte alignment
+    pub species_id: u32,         // Species cluster ID
+
+    // Morphology traits (16 bytes)
+    pub morph_size: f32,
+    pub morph_speed_mult: f32,
+    pub morph_vision_mult: f32,
+    pub morph_metabolism: f32,
 }
-// Total: 56 bytes per organism
+// Total: 72 bytes per organism
 // KEY INVARIANT: genome_id always equals the organism's slot index.
 // This bounds genome IDs to max_organisms, preventing buffer overflow.
 ```
@@ -254,6 +260,25 @@ This creates feast/famine cycles that reward organisms capable of energy storage
 $$\text{hotspot\_bonus} = \text{intensity} \times \max\left(0, 1 - \frac{\text{distance}}{\text{radius}}\right)$$
 
 Hotspots encourage organism migration and exploration behaviors.
+
+### 2.10 Persistent Founder Stores
+
+The simulator can persist curated founders and reuse them as future starters.
+
+- Export source: living organisms at shutdown or manual export via `F6`
+- Ranking: offspring count, then generation, then age, then current energy
+- Stored data: full neural-network weights plus morphology traits and summary metadata
+- Supported formats:
+    - `founder_pool.json`: human-readable founder pool with enabled flags, labels, tags, scores, evaluation counts, and notes
+
+The runtime bootstrap loader only seeds from enabled founder-pool entries. The UI founder browser/editor can reload, save, filter, sort, and edit those records directly in place.
+    - `survivor_bank.bin`: legacy binary bank, still supported for compatibility
+- Startup behavior: load up to `bootstrap.founder_count` founders from the configured store, then fill any remaining initial slots with fresh random organisms
+- Direct founder search: `examples/foraging_founder_search.rs` tests large random batches against a local food-navigation challenge and saves successful founders into `founder_pool.json`
+- Inspection workflow: `examples/founder_pool_tool.rs` can summarize, list, and convert founder stores without requiring custom code or binary inspection
+- Persistence protection: the runtime only overwrites an existing founder store when the new export has a higher aggregate score, preventing short weak runs from degrading a stronger existing pool
+
+This keeps some learned behavior across runs without freezing the whole ecosystem into a single replayed save state, while making the saved founders explicit and inspectable.
 
 ---
 
@@ -646,9 +671,9 @@ When sexual reproduction is enabled, organisms can mate with nearby compatible o
 **Configuration (`ReproductionConfig`):**
 ```toml
 sexual_enabled = true      # Enable sexual reproduction
-mate_range = 50.0          # Max distance to find mate
-mate_signal_min = 0.3      # Both organisms must have reproduce_signal above this
-crossover_ratio = 0.5      # Probability of taking gene from parent 2
+mate_range = 15.0          # Max distance to find mate
+mate_signal_min = 0.4      # Both organisms must have reproduce_signal above this
+crossover_ratio = 0.5      # Probability of taking each gene from the initiating parent
 ```
 
 **Mate Finding Algorithm:**
@@ -660,7 +685,7 @@ crossover_ratio = 0.5      # Probability of taking gene from parent 2
 
 **Crossover:**
 - Each neural network weight randomly chosen from parent1 or parent2
-- Morphology traits averaged then mutated
+- Each morphology trait randomly chosen from parent1 or parent2, then mutated
 - Child spawns near parent1 (the initiator)
 
 ---
@@ -717,8 +742,8 @@ The world is divided into regions with different environmental effects.
 | Normal | 1.0x | 1.0x | 1.0x |
 | Fertile | 2.0x | 1.0x | 1.0x |
 | Barren | 0.25x | 1.0x | 1.0x |
-| Swamp | 1.0x | 0.6x | 1.0x |
-| Harsh | 1.0x | 1.0x | 1.5x |
+| Swamp | 1.0x | 0.5x | 1.0x |
+| Harsh | 1.0x | 1.0x | 2.0x |
 
 **Configuration (`BiomesConfig`):**
 ```toml
@@ -726,8 +751,8 @@ enabled = true
 biome_count = 16              # Number of Voronoi cells
 fertile_growth_mult = 2.0
 barren_growth_mult = 0.25
-swamp_speed_mult = 0.6
-harsh_drain_mult = 1.5
+swamp_speed_mult = 0.5
+harsh_drain_mult = 2.0
 ```
 
 **Generation Algorithm:**

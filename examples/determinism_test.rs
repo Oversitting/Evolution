@@ -3,7 +3,7 @@
 //! This test suite verifies that:
 //! 1. Same seed produces identical results
 //! 2. Simulation speed doesn't affect results
-//! 3. Readback intervals don't affect results  
+//! 3. Critical config invariants are sanitized before runtime  
 //! 4. FPS/frame timing doesn't affect results
 //!
 //! Run with: cargo run --example determinism_test --release
@@ -99,8 +99,8 @@ fn main() {
     // Test 1: Same seed produces identical results
     all_passed &= test_seed_determinism();
     
-    // Test 2: Different readback intervals produce identical results
-    all_passed &= test_readback_interval_independence();
+    // Test 2: Unsafe runtime config is sanitized
+    all_passed &= test_runtime_config_sanitization();
     
     // Test 3: Verify initial state is deterministic
     all_passed &= test_initial_state_determinism();
@@ -127,10 +127,10 @@ fn test_seed_determinism() -> bool {
     let ticks = 500;
     
     println!("  Running simulation with seed {} for {} ticks (run 1)...", seed, ticks);
-    let snapshots_1 = run_cpu_simulation(seed, ticks, 1, 1);
+    let snapshots_1 = run_cpu_simulation(seed, ticks, 1);
     
     println!("  Running simulation with seed {} for {} ticks (run 2)...", seed, ticks);
-    let snapshots_2 = run_cpu_simulation(seed, ticks, 1, 1);
+    let snapshots_2 = run_cpu_simulation(seed, ticks, 1);
     
     // Compare snapshots at each recorded tick
     let mut all_match = true;
@@ -157,44 +157,30 @@ fn test_seed_determinism() -> bool {
     }
 }
 
-/// Test 2: Different readback intervals should not affect simulation results
-fn test_readback_interval_independence() -> bool {
+/// Test 2: Critical runtime config values are sanitized to safe invariants
+fn test_runtime_config_sanitization() -> bool {
     println!("┌──────────────────────────────────────────────────────────────────┐");
-    println!("│ TEST 2: Readback Interval Independence                           │");
+    println!("│ TEST 2: Runtime Config Sanitization                              │");
     println!("└──────────────────────────────────────────────────────────────────┘");
-    
-    let seed = 54321u64;
-    let ticks = 300;
-    
-    // Run with readback_interval = 1 (every tick)
-    println!("  Running with readback_interval=1...");
-    let snapshots_1 = run_cpu_simulation(seed, ticks, 1, 1);
-    
-    // Run with readback_interval = 5
-    println!("  Running with readback_interval=5...");
-    let snapshots_5 = run_cpu_simulation(seed, ticks, 5, 1);
-    
-    // Run with readback_interval = 10
-    println!("  Running with readback_interval=10...");
-    let snapshots_10 = run_cpu_simulation(seed, ticks, 10, 1);
-    
-    // Compare final states
-    let final_tick = ticks as u64;
-    let snap1 = snapshots_1.get(&final_tick);
-    let snap5 = snapshots_5.get(&final_tick);
-    let snap10 = snapshots_10.get(&final_tick);
-    
-    let all_match = snap1 == snap5 && snap5 == snap10;
-    
-    if all_match {
-        println!("  ✅ PASSED: All readback intervals produced identical final state\n");
+
+    let mut config = test_config(54321);
+    config.vision.rays = 12;
+    config.system.readback_interval = 5;
+    config.system.food_readback_interval = 0;
+    config.system.diagnostic_interval = 0;
+
+    config.sanitize();
+
+    let passed = config.vision.rays == 8
+        && config.system.readback_interval == 1
+        && config.system.food_readback_interval == 1
+        && config.system.diagnostic_interval == 1;
+
+    if passed {
+        println!("  ✅ PASSED: Unsafe values were clamped to safe runtime defaults\n");
         true
     } else {
-        println!("  ❌ FAILED: Readback intervals affected simulation");
-        println!("     interval=1:  {:?}", snap1);
-        println!("     interval=5:  {:?}", snap5);
-        println!("     interval=10: {:?}", snap10);
-        println!();
+        println!("  ❌ FAILED: Sanitized config still contains unsafe values: {:?}\n", config.system);
         false
     }
 }
@@ -243,19 +229,19 @@ fn test_speed_independence() -> bool {
     
     // Run with speed=1 (1 tick per "frame")
     println!("  Running {} ticks with speed=1 (200 frames)...", total_ticks);
-    let snapshots_1 = run_cpu_simulation(seed, total_ticks, 1, 1);
+    let snapshots_1 = run_cpu_simulation(seed, total_ticks, 1);
     
     // Run with speed=4 (4 ticks per "frame", 50 frames)
     println!("  Running {} ticks with speed=4 (50 frames)...", total_ticks);
-    let snapshots_4 = run_cpu_simulation(seed, total_ticks, 1, 4);
+    let snapshots_4 = run_cpu_simulation(seed, total_ticks, 4);
     
     // Run with speed=16 (16 ticks per "frame", ~13 frames)
     println!("  Running {} ticks with speed=16 (~13 frames)...", total_ticks);
-    let snapshots_16 = run_cpu_simulation(seed, total_ticks, 1, 16);
+    let snapshots_16 = run_cpu_simulation(seed, total_ticks, 16);
     
     // Run with speed=64 (64 ticks per "frame", ~4 frames)
     println!("  Running {} ticks with speed=64 (~4 frames)...", total_ticks);
-    let snapshots_64 = run_cpu_simulation(seed, total_ticks, 1, 64);
+    let snapshots_64 = run_cpu_simulation(seed, total_ticks, 64);
     
     // Compare at final tick
     let final_tick = total_ticks as u64;
@@ -291,13 +277,11 @@ fn test_speed_independence() -> bool {
 fn run_cpu_simulation(
     seed: u64,
     ticks: u32,
-    readback_interval: u32,
     speed_multiplier: u32,
 ) -> BTreeMap<u64, SimulationSnapshot> {
     use evolution_sim::simulation::Simulation;
     
-    let mut config = test_config(seed);
-    config.system.readback_interval = readback_interval;
+    let config = test_config(seed);
     
     let mut sim = Simulation::new(&config);
     let mut snapshots = BTreeMap::new();

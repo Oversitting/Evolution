@@ -73,12 +73,14 @@ fn test_manager_creation() -> Result<(), String> {
 }
 
 fn test_genetic_distance() -> Result<(), String> {
-    use evolution_sim::simulation::genome::{Genome, INPUT_DIM, HIDDEN_DIM, OUTPUT_DIM};
+    use evolution_sim::config::MorphologyConfig;
+    use evolution_sim::simulation::genome::Genome;
     
     let mut rng = Xoshiro256PlusPlus::seed_from_u64(42);
+    let morph = MorphologyConfig::default();
     
-    let g1 = Genome::new_random(&mut rng);
-    let g2 = Genome::new_random(&mut rng);
+    let g1 = Genome::new_random(&mut rng, &morph);
+    let g2 = Genome::new_random(&mut rng, &morph);
     
     // Random genomes should have some distance
     let dist = g1.distance_to(&g2);
@@ -96,7 +98,7 @@ fn test_genetic_distance() -> Result<(), String> {
     }
     
     // Mutated genome should have small but non-zero distance
-    let g1_mutated = g1.clone_and_mutate(0.5, 0.1, &mut rng);
+    let g1_mutated = g1.clone_and_mutate(0.5, 0.1, &morph, &mut rng);
     let mutated_dist = g1.distance_to(&g1_mutated);
     
     if mutated_dist <= 0.0 {
@@ -110,13 +112,16 @@ fn test_genetic_distance() -> Result<(), String> {
 }
 
 fn test_species_assignment() -> Result<(), String> {
+    use evolution_sim::config::MorphologyConfig;
+
     let config = SpeciesConfig::default();
     let mut manager = SpeciesManager::new(config);
     let mut genomes = GenomePool::new(10);
     let mut rng = Xoshiro256PlusPlus::seed_from_u64(42);
+    let morph = MorphologyConfig::default();
     
     // Create first genome
-    genomes.create_random_at(0, &mut rng);
+    genomes.create_random_at(0, &morph, &mut rng);
     
     let species1 = manager.assign_species(0, 1, &genomes);
     
@@ -129,7 +134,7 @@ fn test_species_assignment() -> Result<(), String> {
     }
     
     // Create second random genome (should be different species due to distance)
-    genomes.create_random_at(1, &mut rng);
+    genomes.create_random_at(1, &morph, &mut rng);
     let species2 = manager.assign_species(1, 1, &genomes);
     
     if species2 == 0 {
@@ -143,6 +148,8 @@ fn test_species_assignment() -> Result<(), String> {
 }
 
 fn test_child_species() -> Result<(), String> {
+    use evolution_sim::config::MorphologyConfig;
+
     let config = SpeciesConfig {
         distance_threshold: 10.0, // Higher threshold
         ..Default::default()
@@ -150,13 +157,14 @@ fn test_child_species() -> Result<(), String> {
     let mut manager = SpeciesManager::new(config);
     let mut genomes = GenomePool::new(10);
     let mut rng = Xoshiro256PlusPlus::seed_from_u64(42);
+    let morph = MorphologyConfig::default();
     
     // Create parent genome and assign species
-    genomes.create_random_at(0, &mut rng);
+    genomes.create_random_at(0, &morph, &mut rng);
     let parent_species = manager.assign_species(0, 1, &genomes);
     
     // Create child genome with small mutation
-    genomes.clone_and_mutate_at(1, 0, 0.1, 0.05, &mut rng); // Low mutation
+    genomes.clone_and_mutate_at(1, 0, 0.1, 0.05, &morph, &mut rng); // Low mutation
     
     let child_species = manager.assign_child_species(1, parent_species, 2, &genomes);
     

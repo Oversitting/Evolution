@@ -1,7 +1,7 @@
 //! Neural Network Test Demo
 //!
 //! Tests the neural network computation in isolation.
-//! Creates organisms with known weight patterns and verifies output.
+//! Mirrors the runtime network shape: ReLU hidden layer, tanh outputs.
 //!
 //! Run with: cargo run --example nn_test
 
@@ -11,8 +11,8 @@ fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     log::info!("Neural Network Test Demo");
     
-    // Test neural network computation on CPU
-    // This validates the same math that runs on GPU
+    // Test neural network computation on CPU.
+    // This mirrors the same activation pattern that runs on the GPU path.
     
     const INPUT_DIM: usize = 20;
     const HIDDEN_DIM: usize = 16;
@@ -42,18 +42,27 @@ fn main() -> Result<()> {
     let output = forward_pass(&input_one, &weights_l1, &biases_l1, &weights_l2, &biases_l2);
     log::info!("Input: [1.0, 0, 0, ...]");
     log::info!("Output: {:?}", output);
-    log::info!("Expected: output[0] = tanh(tanh(1.0)) ≈ 0.63");
+    log::info!("Expected: output[0] = tanh(relu(1.0)) ≈ 0.76");
     
-    // Test case 3: Negative weights
-    log::info!("\n=== Test 3: Negative weights ===");
+    // Test case 3: Negative first-layer weight is suppressed by ReLU
+    log::info!("\n=== Test 3: Negative first-layer weight with ReLU ===");
     weights_l1[0][0] = -1.0;
     let output = forward_pass(&input_one, &weights_l1, &biases_l1, &weights_l2, &biases_l2);
     log::info!("Input: [1.0, 0, 0, ...]");
     log::info!("Output: {:?}", output);
-    log::info!("Expected: output[0] negative");
+    log::info!("Expected: output[0] = 0.0 because the hidden unit is clamped by ReLU");
+
+    // Test case 4: Negative output weight still produces negative action
+    log::info!("\n=== Test 4: Negative output weight ===");
+    weights_l1[0][0] = 1.0;
+    weights_l2[0][0] = -1.0;
+    let output = forward_pass(&input_one, &weights_l1, &biases_l1, &weights_l2, &biases_l2);
+    log::info!("Input: [1.0, 0, 0, ...]");
+    log::info!("Output: {:?}", output);
+    log::info!("Expected: output[0] negative because a positive hidden activation feeds a negative output weight");
     
-    // Test case 4: Large weights (saturation)
-    log::info!("\n=== Test 4: Saturation ===");
+    // Test case 5: Large weights (saturation)
+    log::info!("\n=== Test 5: Saturation ===");
     weights_l1[0][0] = 10.0;
     weights_l2[0][0] = 10.0;
     let output = forward_pass(&input_one, &weights_l1, &biases_l1, &weights_l2, &biases_l2);
@@ -61,8 +70,8 @@ fn main() -> Result<()> {
     log::info!("Output: {:?}", output);
     log::info!("Expected: output[0] ≈ 1.0 (saturated)");
     
-    // Test case 5: Random weights
-    log::info!("\n=== Test 5: Random weights ===");
+    // Test case 6: Random weights
+    log::info!("\n=== Test 6: Random weights ===");
     use rand::Rng;
     let mut rng = rand::thread_rng();
     for i in 0..HIDDEN_DIM {
@@ -106,14 +115,14 @@ fn forward_pass(
     weights_l2: &[[f32; 16]; 6],
     biases_l2: &[f32; 6],
 ) -> [f32; 6] {
-    // Layer 1: input -> hidden
+    // Layer 1: input -> hidden (ReLU, matching think.wgsl)
     let mut hidden = [0.0f32; 16];
     for i in 0..16 {
         let mut sum = biases_l1[i];
         for j in 0..20 {
             sum += weights_l1[i][j] * input[j];
         }
-        hidden[i] = sum.tanh();
+        hidden[i] = sum.max(0.0);
     }
     
     // Layer 2: hidden -> output

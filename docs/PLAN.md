@@ -1,9 +1,9 @@
 # Evolution Simulator: Project Plan
 
 **Project**: GPU-Accelerated Evolution Simulator  
-**Version**: 1.7  
-**Last Updated**: February 2026  
-**Status**: Phase 6 Partial Complete - Morphology, Sexual Reproduction, Biomes Implemented  
+**Version**: 1.8  
+**Last Updated**: March 2026  
+**Status**: Phase 6 feature set implemented; verification and documentation refreshed in March 2026  
 
 ---
 
@@ -28,7 +28,7 @@ A GPU-accelerated 2D evolution simulator where digital organisms with neural net
 | **3** | Rich Simulation | ✅ Complete | 3-4 weeks | Analytics, interaction tools, obstacles, coloring |
 | **4** | **Predation & Species** | ✅ Complete | 3-4 weeks | Attack/defense, species tracking, dynamic environments |
 | **5** | Game Features | 📅 Planned | 2-3 weeks | Audio, main menu, user tools |
-| **6** | Content & Scale | � Partial | 3-4 weeks | Morphology, sexual reproduction, biomes (✅), pheromones (⏳) |
+| **6** | Content & Scale | ✅ Core Complete / Follow-ons Open | 3-4 weeks | Morphology, sexual reproduction, biomes, survivor-bank workflow complete; pheromones and scale work remain |
 | **7** | Advanced | 📅 Planned | Ongoing | Topology evolution, learning, 3D |
 
 ---
@@ -102,7 +102,7 @@ The following complex features are moved to Phase 4 for proper implementation:
 - [ ] **Tutorial/Guide**: Interactive introduction to the simulation
 - [ ] **God Mode Tools**: Brush (paint food/obstacles), Smite, Spawn
 
-### Phase 6: Content & Scale (Complexity) 🔄 IN PROGRESS
+### Phase 6: Content & Scale (Complexity) ✅ CORE COMPLETE / FOLLOW-ONS OPEN
 - [x] **Morphology**: Evolvable traits for size, speed multiplier, vision range, metabolism
   - Affects physics (movement speed, energy costs)
   - Affects rendering (organism size)
@@ -115,8 +115,18 @@ The following complex features are moved to Phase 4 for proper implementation:
   - 5 biome types: Normal, Fertile, Barren, Swamp, Harsh
   - Fertile: 2x food growth rate
   - Barren: 0.25x food growth rate
-  - Swamp: 0.6x movement speed
-  - Harsh: 1.5x energy drain
+  - Swamp: 0.5x movement speed
+  - Harsh: 2.0x energy drain
+- [x] **Verification Refresh (March 2026)**
+  - Restored broken example verification programs to compile against current APIs
+  - Added unit coverage for config sanitation, morphology crossover, and biome generation
+  - Added public-API workflow regression coverage for file-based config sanitization and JSON founder-pool bootstrap
+  - Documented critical runtime invariant: `system.readback_interval` must remain `1`
+- [x] **Persistent Survivor Bank**
+  - Export top living organisms into a reusable founder bank on shutdown or via `F6`
+  - Seed part of future runs from persisted survivor genomes while keeping random founders for diversity
+  - Added `train_survivor_bank` example to iteratively train and validate starter banks against leaner configs
+  - Protected runtime bank persistence so weaker short runs no longer overwrite stronger trained banks
 - [ ] **Pheromones**: Scent trails for social insects behavior (ants/bees)
 - [~] **Spatial Hash Grid**: Deferred - brute force acceptable at 2K scale, complex GPU implementation
 - [ ] **Scale**: Optimizations to reach 10,000+ organisms at 60 FPS
@@ -140,7 +150,7 @@ The following complex features are moved to Phase 4 for proper implementation:
 - **Communication**: Ability to signal other organisms (color change, sound).
 
 ### User Experience
-- **Organism Library**: Save favorite genomes to a persistent library to spawn in other worlds.
+- **Organism Library UI**: In-app founder browser/editor is now implemented for `founder_pool.json`; next iteration is richer sorting, comparison, and bulk curation.
 - **Tournament Mode**: Place two saved species in an arena to battle.
 - **Map Editor**: Draw custom maps with walls and food zones.
 - **Video Export**: Record high-quality video of the simulation.
@@ -166,6 +176,8 @@ The following complex features are moved to Phase 4 for proper implementation:
 - **Time Control**: Pause, fast forward (up to 64x), step-by-step.
 - **Save/Load**: Full simulation state serialization.
 - **Settings**: Runtime configuration of all simulation parameters.
+- **Readable Founder Pool**: JSON founder store plus CLI inspection/conversion tooling.
+- **Founder Browser**: In-app browser/editor for founder filtering, sorting, and curation.
 - **Stability Fix**: Solved reproduction race condition via strictly ordered GPU readback/dispatch cycle.
 - **Determinism**: Full reproducibility with seed-based RNG (see [DETERMINISM.md](DETERMINISM.md)).
 
@@ -201,3 +213,4 @@ src/
 - **No Attack Cooldown**: Organisms can attack every tick. May add in future if balance issues arise.
 - **Representative Genome Invalidation**: When a species representative organism dies, the genome reference may become stale until next recalculation (every 60 ticks).
 - **RNG State Not Serialized**: Save/load doesn't preserve exact RNG state, so loaded simulations may diverge from original trajectory.
+- **Obstacles Not Productized**: Obstacle storage and collision checks exist, but there is still no editor/runtime path that populates obstacle cells.

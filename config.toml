@@ -1,68 +1,56 @@
 # Evolution Simulator Configuration
-# Edit this file to change simulation parameters without recompiling.
-# Restart the simulator for changes to take effect.
+# Omitted values use built-in defaults.
+# Invariant-controlled values such as vision.rays and system.readback_interval
+# are intentionally omitted; the runtime enforces the required safe values.
 
-# seed = 42                  # Optional fixed seed for reproducibility. Uncomment to use.
+# seed = 42
 
 [population]
-max_organisms = 4000         # Hard limit on population (buffer size) [Range: 100-20,000]
-initial_organisms = 600      # Starting population count [Recommended: 10-20% of max]
+max_organisms = 4000
+initial_organisms = 180
 
 [energy]
-starting = 70.0              # Energy at birth/spawn [Range: 10-maximum]
-maximum = 200.0              # Maximum energy capacity [Range: 50-1000]
-passive_drain = 0.14         # Metabolic cost per tick [Range: 0.01-1.0]
-movement_cost_forward = 0.02 # Cost per unit moved [Range: 0.0-0.5]
-movement_cost_rotate = 0.01  # Cost per radian rotated [Range: 0.0-0.5]
-max_age = 2000               # Lifespan in ticks (0 = immortal) [Recommended: 2000-5000]
-crowding_factor = 1.0        # Extra energy drain when population nears max [Range: 0.0-10.0]
-age_drain_factor = 1.0       # Extra energy drain as age increases [Range: 0.0-5.0]
+starting = 70.0
+maximum = 200.0
+passive_drain = 0.095
+max_age = 2000
+crowding_factor = 1.0
+age_drain_factor = 1.0
 
 [reproduction]
-threshold = 70.0             # Energy required to reproduce [Range: cost-maximum]
-signal_min = 0.3             # Neural net output threshold (0.0-1.0)
-cooldown = 120               # Ticks to wait between offspring [Recommended: 60-300]
-min_age = 150                # Minimum age to reproduce [Recommended: 100-500]
-cost = 50.0                  # Energy transferred to child [Range: 10-threshold]
+threshold = 60.0
+cost = 40.0
+min_age = 100
+cooldown = 90
+signal_min = 0.3
 
 [mutation]
-rate = 0.05                  # Probability of mutation per weight [Range: 0.0-1.0]
-strength = 0.2               # Magnitude of mutation [-strength, +strength]
-
-[vision]
-rays = 8                     # CRITICAL: Must match genome constant input size. Do not change.
-fov_degrees = 90.0           # Field of view in degrees [Range: 10-360]
-range = 50.0                 # Vision distance [Range: 10-500]
-
-[physics]
-max_speed = 2.5              # Speed limit [Range: 0.1-10.0]
-max_rotation = 0.25          # Turn speed limit (radians) [Range: 0.01-1.0]
-organism_radius = 3.0        # Size for rendering/collisions [Range: 1.0-10.0]
+rate = 0.05
+strength = 0.2
 
 [food]
-growth_rate = 0.05           # Regrowth per tick [Range: 0.001-1.0]
-max_per_cell = 10.0          # Max food energy per cell [Range: 1.0-100.0]
-energy_value = 4.0           # Energy gain per eaten unit [Range: 1.0-10.0]
-initial_patches = 200        # Number of starting food clusters
-patch_size = 10              # Radius of food clusters
-effectiveness = 1.0          # Eating efficiency multiplier (1.0 = normal)
-baseline_food = 0.0          # Minimum food everywhere (0.0 = patches only)
-spawn_chance = 0.000001      # Chance to spawn new food patch (per cell/tick)
-spawn_amount = 2.0           # Amount of food in new spawn
+growth_rate = 0.0050
+max_per_cell = 10.0
+energy_value = 4.0
+effectiveness = 1.05
+initial_patches = 360
+patch_size = 10
 
 [world]
-width = 2048                 # Grid width [Recommended: Power of 2]
-height = 2048                # Grid height [Recommended: Power of 2]
+width = 2048
+height = 2048
 
-[predation]
-enabled = false              # Whether attack system is active (disabled by default)
-attack_threshold = 0.3       # Neural output threshold to trigger attack [Range: 0.0-1.0]
-attack_range = 8.0           # Distance for attack to connect [Range: 1.0-20.0]
-attack_damage = 20.0         # Damage dealt per attack [Range: 1.0-50.0]
-energy_transfer = 0.5        # Fraction of damage transferred as energy [Range: 0.0-1.0]
-attack_cost = 2.0            # Energy cost to attempt attack [Range: 0.0-10.0]
+[bootstrap]
+enabled = true
+path = "founder_pool.json"
+founder_count = 16
+survivor_count = 256
+load_on_start = true
+save_on_exit = true
 
 [system]
-readback_interval = 1        # GPU->CPU Sync interval [CRITICAL: Keep at 1 for correct simulation]
-food_readback_interval = 60  # Food stats update interval
-diagnostic_interval = 60     # Logging interval
+food_readback_interval = 60
+diagnostic_interval = 60
+
+# Add optional sections like [predation], [biomes], [morphology], or extra
+# [food] / [reproduction] overrides only when you want to change those defaults.

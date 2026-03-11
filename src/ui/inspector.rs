@@ -10,17 +10,17 @@ use crate::simulation::genome::{Genome, INPUT_DIM, HIDDEN_DIM, OUTPUT_DIM};
 
 /// Labels for neural network inputs
 pub const INPUT_LABELS: [&str; 20] = [
-    // Vision rays (8 rays × 2 values = food distance + organism distance)
-    "Ray0 Food", "Ray0 Org",
-    "Ray1 Food", "Ray1 Org",
-    "Ray2 Food", "Ray2 Org",
-    "Ray3 Food", "Ray3 Org",
-    "Ray4 Food", "Ray4 Org",
-    "Ray5 Food", "Ray5 Org",
-    "Ray6 Food", "Ray6 Org",
-    "Ray7 Food", "Ray7 Org",
+    // Vision rays (8 rays × 2 values = hit distance + hit type)
+    "Ray0 Dist", "Ray0 Type",
+    "Ray1 Dist", "Ray1 Type",
+    "Ray2 Dist", "Ray2 Type",
+    "Ray3 Dist", "Ray3 Type",
+    "Ray4 Dist", "Ray4 Type",
+    "Ray5 Dist", "Ray5 Type",
+    "Ray6 Dist", "Ray6 Type",
+    "Ray7 Dist", "Ray7 Type",
     // Internal state (4 values)
-    "Energy", "Velocity", "Angular", "Bias",
+    "Energy", "Age", "Speed", "Org Dir",
 ];
 
 /// Labels for neural network outputs
@@ -29,7 +29,7 @@ pub const OUTPUT_LABELS: [&str; 6] = [
     "Turn",       // Rotation left/right  
     "Eat",        // Eating intention
     "Reproduce",  // Reproduction signal
-    "Out4",       // Reserved
+    "Attack",     // Predation signal
     "Out5",       // Reserved
 ];
 
@@ -78,7 +78,13 @@ pub fn render_inspector(
 ) {
     egui::Window::new("🔍 Inspector")
         .open(show_inspector)
-        .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-10.0, 50.0))
+        .anchor(
+            egui::Align2::RIGHT_TOP,
+            egui::vec2(
+                -crate::ui::theme::UI_MARGIN,
+                crate::ui::theme::TOP_BAR_HEIGHT + crate::ui::theme::UI_MARGIN,
+            ),
+        )
         .resizable(true)
         .collapsible(true)
         .default_width(280.0)
@@ -270,14 +276,14 @@ fn render_neural_network(ui: &mut egui::Ui, org: &SelectedOrganism, genome: &Gen
     
     // Draw hidden nodes
     for (i, &pos) in hidden_nodes.iter().enumerate() {
-        // Compute hidden activation (simplified - actual is on GPU)
+        // Compute hidden activation using the same ReLU layer as think.wgsl.
         let mut activation = genome.biases_l1.get(i).copied().unwrap_or(0.0);
         for (j, &input_val) in org.nn_inputs.iter().enumerate() {
             let weight_idx = j * HIDDEN_DIM + i;
             let weight = genome.weights_l1.get(weight_idx).copied().unwrap_or(0.0);
             activation += input_val * weight;
         }
-        activation = activation.tanh();
+        activation = activation.max(0.0);
         draw_node(&painter, pos, activation, false);
     }
     

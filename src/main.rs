@@ -75,10 +75,15 @@ fn main() -> Result<()> {
 
     // Run event loop
     let mut exit_logged = false;
+    let mut survivor_bank_persisted = false;
     event_loop.run(move |event, elwt| {
         // Check for auto-exit
         if app.should_exit() {
             if !exit_logged {
+                if !survivor_bank_persisted {
+                    app.persist_survivor_bank_on_exit();
+                    survivor_bank_persisted = true;
+                }
                 log::info!("Auto-exit timeout reached, shutting down");
                 exit_logged = true;
             }
@@ -97,12 +102,22 @@ fn main() -> Result<()> {
                     match app.render() {
                         Ok(_) => {}
                         Err(wgpu::SurfaceError::Lost) => app.resize(window.inner_size()),
-                        Err(wgpu::SurfaceError::OutOfMemory) => elwt.exit(),
+                        Err(wgpu::SurfaceError::OutOfMemory) => {
+                            if !survivor_bank_persisted {
+                                app.persist_survivor_bank_on_exit();
+                                survivor_bank_persisted = true;
+                            }
+                            elwt.exit();
+                        }
                         Err(e) => log::error!("Render error: {:?}", e),
                     }
                 } else if !egui_consumed {
                     match event {
                         WindowEvent::CloseRequested => {
+                            if !survivor_bank_persisted {
+                                app.persist_survivor_bank_on_exit();
+                                survivor_bank_persisted = true;
+                            }
                             log::info!("Close requested, shutting down");
                             elwt.exit();
                         }

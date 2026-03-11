@@ -19,11 +19,13 @@ A GPU-accelerated 2D evolution simulator where digital organisms with neural net
 - **Morphology**: Evolvable traits (size, speed, vision, metabolism) that affect physics and rendering
 - **Sexual Reproduction**: Optional crossover-based reproduction with mate finding
 - **Biomes**: Regional environments (Fertile, Barren, Swamp, Harsh) with different effects
+- **Founder Pool Workflow**: Reuse curated founders across runs with readable JSON storage and in-app editing
+- **Config Safety Guards**: Runtime sanitization clamps values that would break allocation, wrapping, or shader math
 
 ## Requirements
 
 - **OS**: Windows 10+, Linux
-- **GPU**: Vulkan 1.2
+- **GPU**: Any GPU/driver stack supported by `wgpu` (DX12/Vulkan tested path on Windows)
 - **VRAM**: 2 GB minimum
 - **Rust**: 1.75 or later
 
@@ -74,11 +76,15 @@ cargo run --release -- --help
 | F | Follow selected |
 | I | Toggle inspector |
 | H | Toggle help overlay |
+| O | Toggle founder pool browser |
 | E | Feed selected (+20 energy) |
 | K | Kill selected organism |
 | Esc | Menu |
 | F5 | Quick save |
+| F6 | Export founder store |
 | F9 | Quick load |
+
+Stats are toggled from the toolbar button in the top-right corner.
 
 ## How It Works
 
@@ -88,6 +94,8 @@ cargo run --release -- --help
 4. **Evolve**: Successful organisms reproduce, passing mutated copies of their neural networks to offspring
 
 Over time, organisms evolve increasingly sophisticated foraging behaviors.
+
+To reduce the number of completely naive starts, the simulator can export a founder store and reuse those genomes as future founders. Founders keep their evolved neural weights and morphology, but start in new positions with fresh energy so each run still has environmental variation. The readable `founder_pool.json` store can be curated either from the CLI tooling or directly in the in-app founder browser.
 
 ## Project Structure
 
@@ -106,12 +114,14 @@ evolution-sim/
 │   ├── DESIGN.md         # Technical specification
 │   └── PLAN.md           # Project roadmap
 └── .github/
+    ├── agents/                  # Custom Copilot agents for repo workflows
+    ├── prompts/                 # Reusable Copilot prompts for audits/checks
     └── copilot-instructions.md  # AI assistant context
 ```
 
 ## Configuration
 
-Edit `config.toml` to adjust simulation parameters without recompiling:
+Edit `config.toml` to adjust simulation parameters without recompiling. The file can be partial: omitted values fall back to built-in defaults, and invariant-controlled values like `vision.rays` and organism `readback_interval` are enforced by the runtime. The runtime also clamps obviously unsafe values such as zero-sized worlds, zero food capacity, impossible reproduction energy relationships, inverted morphology bounds, and zero seasonal period before they reach allocation or shader code.
 
 ```toml
 # Optional fixed seed for reproducibility
@@ -141,37 +151,124 @@ strength = 0.2          # Standard deviation of mutation noise
 
 [food]
 energy_value = 4.0      # Energy gained from eating
-growth_rate = 0.05      # Food regeneration rate
+growth_rate = 0.003     # Food regeneration rate
 max_per_cell = 10.0     # Maximum food per cell
 effectiveness = 1.0     # Multiplier for food energy (lower = harder)
 initial_patches = 200   # Number of food patches at start
 patch_size = 10         # Radius of food patches
-baseline_food = 0.0     # Minimum food everywhere (0.0 = patches only)
-spawn_chance = 0.000001 # Chance to seed new food patches
-spawn_amount = 2.0      # Food placed when a new patch appears
+
+[bootstrap]
+enabled = true          # Persist curated founders between runs
+path = "founder_pool.json"
+founder_count = 16      # Typical curated founder count for stable mixed starts
+survivor_count = 256    # Max living organisms kept when exporting the pool
+load_on_start = true    # Reuse founders on future starts
+save_on_exit = true     # Update the pool automatically on shutdown
+
+[system]
+food_readback_interval = 60
+diagnostic_interval = 60
+```
+
+The startup population is mixed: stored founders are used first, and any remaining slots are still filled with fresh random organisms. The bootstrap path now supports two formats:
+
+- `founder_pool.json`: readable founder pool with labels, scores, and evaluation metadata
+- `survivor_bank.bin`: legacy binary bank format, still supported for compatibility
+
+Press `F6` at any time to export the current living survivors immediately.
+
+Press `O` or click the library button in the top bar to open the founder browser. It supports filtering, enabled-only views, sorting, and editing founder labels, tags, notes, and enabled state.
+
+For offline training, run:
+
+```bash
+cargo run --example train_survivor_bank -- --epochs 4 --train-ticks 1000 --eval-ticks 1200 --seed 42
+```
+
+That example repeatedly trains a survivor bank and validates it against leaner starter presets. It is still useful for experimentation, but the more transparent founder-pool workflow is now the primary path for curation and inspection.
+
+Runtime founder exports are protected from regression as well: when exporting to the legacy binary path, the app only overwrites `survivor_bank.bin` when the newly exported bank scores stronger than the existing one.
+
+For direct food-navigation founder search, run:
+
+```bash
+cargo run --release --example foraging_founder_search -- --output founder_pool.json --batch-size 10000 --iterations 8 --target-founders 128
+```
+
+That search places each random organism near food but never directly pointed at it, then keeps the founders that actually turn toward and reach the food.
+
+To inspect or convert founder stores:
+
+```bash
+cargo run --example founder_pool_tool -- summary --path founder_pool.json
+cargo run --example founder_pool_tool -- list --path founder_pool.json --limit 20
+cargo run --example founder_pool_tool -- convert-bank --input survivor_bank.bin --output founder_pool.json
 ```
 
 ## Testing
 
 ```bash
-# Run unit tests (17 tests for Phase 1/2 features)
-cargo run --example feature_test
+# Run unit tests for config/genome/world/species invariants
+cargo test
 
-# Run integration tests (7 tests for runtime behavior)
+# Verify all example-based checks and demos still compile
+cargo check --examples
+
+# Run broad verification examples
+cargo run --example feature_test
 cargo run --example integration_test
+cargo run --example simulation_smoke_test
+cargo run --example simulation_feature_probe
+cargo run --example train_survivor_bank
+
+# Long-run metrics CSV for tuning
+cargo run --example metrics_logger -- --ticks 2000 --interval 20 --output metrics.csv
+
+# Long-run metrics using the real app config and founder pool
+cargo run --example metrics_logger -- --config config.toml --ticks 2400 --interval 200 --output metrics-realapp.csv
+
+# Longer-run validation with a scarcer-food preset
+cargo run --release --example metrics_logger -- --config config.longrun.toml --ticks 25000 --interval 2500 --output metrics-25k.csv
 
 # Run neural network validation
 cargo run --example nn_test
 
-# Run food system demo
-cargo run --example food_test
+# Measure startup genome / sensory / action diversity
+cargo run --example nn_diversity_probe -- --config config.toml
+
+# Same probe, but with survivor-bank founders disabled
+cargo run --example nn_diversity_probe -- --config config.toml --disable-bootstrap
+
+# Direct founder search for nearby off-angle food navigation
+cargo run --release --example foraging_founder_search -- --output founder_pool.json --batch-size 10000 --iterations 8 --target-founders 128
+
+# Inspect or convert readable founder pools
+cargo run --example founder_pool_tool -- summary --path founder_pool.json
+
+# Run species and reproduction verification
+cargo run --example species_test
+cargo run --example repro_test
 ```
+
+`cargo test` now also covers public-API workflow regressions for file-based config sanitization and the primary `founder_pool.json` bootstrap path.
+
+## Copilot Workflows
+
+Workspace-scoped Copilot customizations live under `.github/agents/` and `.github/prompts/`.
+
+- `Repo Auditor` agent: deep repo audits for code/docs/tests/config drift
+- `Feature Audit` prompt: verify a feature against implementation and tests
+- `Config Workflow Check` prompt: validate config invariants, founder-pool flows, and diagnostics
+- `Release Readiness` prompt: build/test/docs alignment pass before release
 
 ## Demo Examples
 
 ```bash
 # Performance benchmark
 cargo run --example perf_test
+
+# Long-run metrics CSV for tuning
+cargo run --example metrics_logger -- --ticks 2000 --interval 20 --output metrics.csv
 
 # Reproduction system test
 cargo run --example repro_test

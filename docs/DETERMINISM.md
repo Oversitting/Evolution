@@ -16,7 +16,7 @@ The Evolution Simulator is designed to be **fully deterministic** when given the
 
 2. **Speed-independent**: Running at 1x, 16x, or 64x speed produces identical results (only affects ticks processed per frame).
 
-3. **Readback-independent**: The `readback_interval`, `food_readback_interval`, and `diagnostic_interval` settings don't affect simulation logic.
+3. **Readback-sensitive for organisms**: `system.readback_interval` is part of simulation correctness and must remain `1`. Food and diagnostic intervals do not affect organism behavior.
 
 4. **Frame-rate independent**: FPS fluctuations don't affect the simulation (each tick is discrete and self-contained).
 
@@ -121,7 +121,7 @@ Since each tick is a discrete, deterministic operation, batching multiple ticks 
 
 ---
 
-## Readback Interval Independence
+## Readback Configuration
 
 The system settings control CPU↔GPU synchronization frequency:
 
@@ -132,12 +132,14 @@ food_readback_interval = 60  # How often CPU reads food grid
 diagnostic_interval = 60     # How often to log diagnostics
 ```
 
-These settings affect **when** the CPU observes GPU state, not **what** that state is:
+These settings do not all have the same semantics:
 
-- `readback_interval = 1`: CPU sees organism state every tick (required for accurate reproduction)
-- `readback_interval > 1`: CPU may check reproduction less frequently, but organisms still exist in correct states
+- `readback_interval = 1`: CPU sees organism state every tick and reproduction energy deductions stay synchronized.
+- `readback_interval > 1`: Unsafe for this architecture. CPU reproduction logic can operate on stale organism state and overwrite energy deductions.
+- `food_readback_interval`: Only affects how often CPU-side food statistics are refreshed.
+- `diagnostic_interval`: Only affects logging cadence.
 
-**Important**: For accurate reproduction, `readback_interval` should remain at `1`. Higher values may cause delayed reproduction checks but won't change final simulation state over many ticks.
+**Important**: The runtime now sanitizes `readback_interval` back to `1` and clamps zero-valued intervals to `1` to prevent invalid modulo operations in the compute pipeline.
 
 ---
 
@@ -183,7 +185,7 @@ cargo run --example determinism_test --release
 
 This validates:
 1. **Seed determinism**: Same seed → identical results
-2. **Readback independence**: Different intervals → same final state
+2. **Configuration invariants**: Critical runtime settings are enforced before simulation starts
 3. **Initial state determinism**: Same seed → identical starting conditions
 4. **Speed independence**: Different speed multipliers → same final state
 

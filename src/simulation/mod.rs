@@ -7,9 +7,12 @@ pub mod save_load;
 pub mod species;
 
 pub use organism::{OrganismPool, OrganismGpu};
+#[allow(unused_imports)]
 pub use world::{World, BiomeType};
+#[allow(unused_imports)]
 pub use genome::GenomePool;
-pub use save_load::{SaveState, SavedOrganism, SavedGenome};
+#[allow(unused_imports)]
+pub use save_load::{FounderPool, FounderRecord, SaveState, SavedOrganism, SavedGenome, SurvivorBank, SurvivorEntry};
 pub use species::{SpeciesManager, SpeciesConfig};
 
 use crate::config::SimulationConfig;
@@ -34,6 +37,49 @@ pub struct Simulation {
 }
 
 impl Simulation {
+    fn load_survivor_bank(config: &SimulationConfig) -> Vec<SurvivorEntry> {
+        if !config.bootstrap.enabled || !config.bootstrap.load_on_start || config.bootstrap.founder_count == 0 {
+            return Vec::new();
+        }
+
+        match save_load::load_bootstrap_entries(&config.bootstrap.path, config.bootstrap.founder_count as usize) {
+            Ok(founders) => {
+
+                if !founders.is_empty() {
+                    log::info!(
+                        "Loaded {} bootstrap founders from {:?}",
+                        founders.len(),
+                        config.bootstrap.path
+                    );
+                }
+
+                founders
+            }
+            Err(error) => {
+                log::info!(
+                    "No survivor bank loaded from {:?}: {}",
+                    config.bootstrap.path,
+                    error
+                );
+                Vec::new()
+            }
+        }
+    }
+
+    fn survivor_score(org: &organism::Organism) -> f32 {
+        org.generation as f32 * 5_000.0
+            + org.age as f32 * 8.0
+            + org.energy * 40.0
+            + org.offspring_count as f32 * 600.0
+    }
+
+    fn wrap_position(position: glam::Vec2, world_width: f32, world_height: f32) -> glam::Vec2 {
+        glam::Vec2::new(
+            position.x.rem_euclid(world_width),
+            position.y.rem_euclid(world_height),
+        )
+    }
+
     pub fn new(config: &SimulationConfig) -> Self {
         let mut rng = if let Some(seed) = config.seed {
             Xoshiro256PlusPlus::seed_from_u64(seed)
@@ -61,6 +107,8 @@ impl Simulation {
         
         log::info!("Found {} cells with food patches for spawning", food_positions.len());
         
+        let survivor_founders = Self::load_survivor_bank(config);
+
         // Spawn initial organisms - DISTRIBUTE across patches, not clustered
         // Each organism picks a different random food position to encourage dispersal
         let num_organisms = config.population.initial_organisms;
@@ -69,6 +117,8 @@ impl Simulation {
         } else {
             1
         };
+
+        let seeded_founders = survivor_founders.len().min(num_organisms as usize);
         
         for i in 0..num_organisms {
             let pos = if !food_positions.is_empty() {
@@ -79,9 +129,13 @@ impl Simulation {
                     % food_positions.len();
                 let (x, y) = food_positions[food_idx];
                 // Add small random offset to avoid stacking
-                glam::Vec2::new(
+                Self::wrap_position(
+                    glam::Vec2::new(
                     x + rand::Rng::gen_range(&mut rng, -3.0..3.0),
                     y + rand::Rng::gen_range(&mut rng, -3.0..3.0),
+                    ),
+                    config.world.width as f32,
+                    config.world.height as f32,
                 )
             } else {
                 // Fallback to random position
@@ -92,9 +146,15 @@ impl Simulation {
             };
             
             // Create genome at this slot index first (with morphology config)
-            genomes.create_random_at(i, &config.morphology, &mut rng);
+            let founder_generation = if let Some(entry) = survivor_founders.get(i as usize) {
+                genomes.restore_at(i, genome::Genome::from(&entry.genome));
+                entry.generation
+            } else {
+                genomes.create_random_at(i, &config.morphology, &mut rng);
+                0
+            };
             // Spawn organism with genome_id = slot index
-            organisms.spawn(pos, config.energy.starting, i, 0, &mut rng);
+            organisms.spawn(pos, config.energy.starting, i, founder_generation, &mut rng);
             
             // Set morphology traits on organism from genome
             if let Some(morph) = genomes.get_morphology(i) {
@@ -105,9 +165,10 @@ impl Simulation {
         }
         
         log::info!(
-            "Spawned {} initial organisms distributed across {} food patches",
+            "Spawned {} initial organisms distributed across {} food patches ({} loaded from bootstrap store)",
             organisms.count(),
-            config.food.initial_patches
+            config.food.initial_patches,
+            seeded_founders
         );
         
         // Create species manager and assign initial species
@@ -176,7 +237,6 @@ impl Simulation {
         
         // Struct to hold reproduction intent
         struct ReproductionIntent {
-            parent_idx: u32,
             parent_genome_id: u32,
             parent_generation: u32,
             parent_species_id: u32,
@@ -220,7 +280,7 @@ impl Simulation {
                     rand::Rng::gen_range(&mut self.rng, -5.0..5.0),
                     rand::Rng::gen_range(&mut self.rng, -5.0..5.0),
                 );
-                let child_pos = org.position + offset;
+                let child_pos = Self::wrap_position(org.position + offset, world_width, world_height);
                 
                 // Find mate for sexual reproduction
                 let mate_genome_id = if config.reproduction.sexual_enabled {
@@ -273,7 +333,6 @@ impl Simulation {
                 };
                 
                 intents.push(ReproductionIntent {
-                    parent_idx: idx,
                     parent_genome_id: org.genome_id,
                     parent_generation: org.generation,
                     parent_species_id: org.species_id,
@@ -403,6 +462,51 @@ impl Simulation {
             world_height: self.world.height,
         }
     }
+
+    /// Create a persistent survivor bank from the best currently living organisms.
+    pub fn to_survivor_bank(&self, tick: u64, max_entries: usize) -> Option<SurvivorBank> {
+        if max_entries == 0 {
+            return None;
+        }
+
+        let mut entries: Vec<SurvivorEntry> = self
+            .organisms
+            .iter()
+            .filter(|org| org.is_alive())
+            .filter_map(|org| {
+                self.genomes.get(org.genome_id).map(|genome| SurvivorEntry {
+                    genome: SavedGenome::from(genome),
+                    generation: org.generation,
+                    offspring_count: org.offspring_count,
+                    age: org.age,
+                    energy: org.energy,
+                    species_id: org.species_id,
+                    score: Self::survivor_score(org),
+                })
+            })
+            .collect();
+
+        if entries.is_empty() {
+            return None;
+        }
+
+        entries.sort_by(|left, right| {
+            right
+                .score
+                .partial_cmp(&left.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(right.generation.cmp(&left.generation))
+                .then(right.age.cmp(&left.age))
+                .then_with(|| right.energy.partial_cmp(&left.energy).unwrap_or(std::cmp::Ordering::Equal))
+        });
+        entries.truncate(max_entries);
+
+        Some(SurvivorBank {
+            version: SurvivorBank::VERSION,
+            source_tick: tick,
+            entries,
+        })
+    }
     
     /// Restore simulation from SaveState
     pub fn from_save_state(state: &SaveState) -> Self {
@@ -472,5 +576,70 @@ impl Simulation {
             rng,
             species_manager,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::SimulationConfig;
+    use std::fs;
+
+    fn temp_bank_path(name: &str) -> std::path::PathBuf {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("{}_{}.bin", name, unique))
+    }
+
+    #[test]
+    fn survivor_bank_round_trip_seeds_future_founders() {
+        let bank_path = temp_bank_path("survivor_bank_test");
+
+        let mut source_config = SimulationConfig::default();
+        source_config.seed = Some(11);
+        source_config.population.max_organisms = 8;
+        source_config.population.initial_organisms = 2;
+        source_config.bootstrap.path = bank_path.clone();
+        source_config.bootstrap.founder_count = 2;
+        source_config.bootstrap.survivor_count = 2;
+        source_config.bootstrap.load_on_start = false;
+
+        let mut source_sim = Simulation::new(&source_config);
+        {
+            let first = source_sim.organisms.get_mut(0).unwrap();
+            first.age = 400;
+            first.energy = 150.0;
+            first.offspring_count = 3;
+        }
+        {
+            let second = source_sim.organisms.get_mut(1).unwrap();
+            second.age = 250;
+            second.energy = 120.0;
+            second.offspring_count = 1;
+            second.generation = 2;
+        }
+
+        let bank = source_sim.to_survivor_bank(123, 2).unwrap();
+        bank.save_to_file(&bank_path).unwrap();
+
+        let mut seeded_config = SimulationConfig::default();
+        seeded_config.seed = Some(12);
+        seeded_config.population.max_organisms = 4;
+        seeded_config.population.initial_organisms = 2;
+        seeded_config.bootstrap.path = bank_path.clone();
+        seeded_config.bootstrap.founder_count = 2;
+        seeded_config.bootstrap.survivor_count = 2;
+        seeded_config.bootstrap.load_on_start = true;
+
+        let seeded_sim = Simulation::new(&seeded_config);
+
+        let expected = bank.entries[0].genome.weights_l1[0];
+        let actual = seeded_sim.genomes.get(0).unwrap().weights_l1[0];
+        assert_eq!(actual, expected);
+        assert_eq!(seeded_sim.organisms.get(0).unwrap().generation, bank.entries[0].generation);
+
+        let _ = fs::remove_file(bank_path);
     }
 }

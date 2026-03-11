@@ -273,7 +273,6 @@ fn test_count_saturating() -> Result<(), String> {
     // Test that count operations don't underflow
     // This is a regression test for the fix to cleanup_dead
     
-    let config = SimulationConfig::default();
     let mut rng = Xoshiro256PlusPlus::seed_from_u64(42);
     let mut pool = OrganismPool::new(10);
     

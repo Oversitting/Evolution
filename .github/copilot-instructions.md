@@ -15,7 +15,7 @@ Simulate thousands of organisms in parallel, each with:
 
 ## Architecture & Data Flows
 
-### High-Level Game Loop (see [src/main.rs](src/main.rs#L43) and [src/app.rs](src/app.rs#L50))
+### High-Level Game Loop (see [src/main.rs](../src/main.rs) and [src/app.rs](../src/app.rs))
 
 ```
 Input (winit events)
@@ -40,7 +40,7 @@ Display frame
 | **simulation** | CPU logic: organism pools, genome management, reproduction, world state | `simulation/organism.rs`, `genome.rs`, `world.rs` |
 | **compute** | GPU parallel execution: buffers management, compute shaders dispatch | `compute/pipeline.rs`, `buffers.rs` |
 | **render** | GPU rendering: organism triangles, food textures, UI layer | `render/mod.rs`, `camera.rs` |
-| **ui** | egui overlay: HUD, stats graphs, inspector, controls, theme | `ui/mod.rs`, `ui/stats.rs`, `ui/inspector.rs`, `ui/theme.rs` |
+| **ui** | egui overlay: HUD, stats graphs, inspector, founder browser/editor, controls, theme | `ui/mod.rs`, `ui/stats.rs`, `ui/inspector.rs`, `ui/theme.rs` |
 | **config** | All tunable parameters (serializable to TOML/JSON) | `config.rs` |
 
 ### GPU Compute Pipeline (the "sense→think→act" loop)
@@ -53,7 +53,7 @@ Three compute shaders dispatch in sequence—see `src/compute/shaders/`:
 
 Each shader reads organism + genome state, writes updated organism state. RNG is seeded from organism ID for reproducibility.
 
-**Critical detail**: Genome weights stored separately in `GpuBuffers` ([compute/buffers.rs](src/compute/buffers.rs#L9)) as:
+**Critical detail**: Genome weights stored separately in `GpuBuffers` ([compute/buffers.rs](../src/compute/buffers.rs)) as:
 - `weights_1`, `biases_1`: input→hidden layer (320+16 floats per organism)
 - `weights_2`, `biases_2`: hidden→output layer (96+6 floats per organism)
 
@@ -61,7 +61,7 @@ Each shader reads organism + genome state, writes updated organism state. RNG is
 
 ## Key Data Structures
 
-### Organism (64+ bytes, CPU+GPU sync in [simulation/organism.rs](src/simulation/organism.rs))
+### Organism (64+ bytes, CPU+GPU sync in [simulation/organism.rs](../src/simulation/organism.rs))
 ```rust
 position: [f32; 2]       // World coords (wraps at edges)
 velocity: [f32; 2]       // Current velocity
@@ -89,7 +89,7 @@ morph_metabolism: f32    // Metabolism efficiency (higher = less drain)
 - Stored in GPU buffers accessed by compute shaders
 - **Must be synced to GPU immediately after creation** via `update_nn_weights_for_genome()`
 
-### Simulation Config ([src/config.rs](src/config.rs) + `config.toml`)
+### Simulation Config ([src/config.rs](../src/config.rs) + `config.toml`)
 All parameters are grouped logically:
 - `population`: max/initial organisms
 - `energy`: drain rates, movement costs, max_age, age_drain_factor, crowding_factor
@@ -120,7 +120,7 @@ All parameters are grouped logically:
 cargo run --release -- --config custom.toml --auto-exit 30 --paused --speed 16
 ```
 
-Changes to config update GPU uniforms via `update_config()` each frame ([compute/buffers.rs](src/compute/buffers.rs#L141)).
+Changes to config update GPU uniforms via `update_config()` each frame ([compute/buffers.rs](../src/compute/buffers.rs)).
 
 ---
 
@@ -166,7 +166,8 @@ for genome_id in &result.new_genome_ids {
 5. **Dispatch**: Compute shader runs on the *new* state.
 
 **System Config**:
-- `system.readback_interval`: Must be **1** (every tick) to prevent "free energy" glitches where the GPU snapshot overwrites the CPU's energy deduction.
+- `system.readback_interval`: Must be **1** (every tick) to prevent "free energy" glitches where the GPU snapshot overwrites the CPU's energy deduction. The runtime now sanitizes invalid values back to `1`.
+- Runtime config sanitization also protects zero-sized worlds, zero food capacity, impossible reproduction energy relationships, inverted morphology bounds, and zero seasonal period before those values reach world allocation or GPU shaders.
 
 ### 4. Rendering Organisms (CPU-driven)
 - Organisms rendered as triangles pointing in direction of rotation
@@ -177,6 +178,8 @@ for genome_id in &result.new_genome_ids {
 ### 5. Build & Test Workflow
 ```bash
 cargo check          # Fast lint check
+cargo test           # Unit tests plus public-API workflow regressions
+cargo check --examples  # Verify example-based regression programs compile
 cargo build          # Debug build (unoptimized)
 cargo build --release  # Optimized (LTO enabled) for real simulation
 cargo run --release    # Launch simulator
@@ -208,7 +211,7 @@ The neural network INPUT_DIM is hardcoded to 20 = 8 rays × 2 + 4 internal. Chan
 Organisms need to spawn ON or near food to survive. Random spawning with sparse food leads to mass starvation. See `simulation/mod.rs` spawn logic.
 
 ### ✅ Do: Use Xoshiro256PlusPlus for deterministic seeded RNG
-Used in [simulation/mod.rs](src/simulation/mod.rs#L17) and compute shaders. Seeding from organism ID ensures reproducible evolution per run. See [docs/DETERMINISM.md](docs/DETERMINISM.md) for full reproducibility guide.
+Used in [simulation/mod.rs](../src/simulation/mod.rs) and compute shaders. Seeding from organism ID ensures reproducible evolution per run. See [docs/DETERMINISM.md](../docs/DETERMINISM.md) for full reproducibility guide.
 
 ### ✅ Do: Batch GPU operations
 Compute dispatch is cheap; minimize state-switching between sense→think→act (three dispatches per tick).
@@ -220,17 +223,19 @@ The world shader uses PCG hash for food spawning. Never use sin() for pseudo-ran
 
 ## File Navigation Quick Reference
 
-- **Entry point**: [src/main.rs](src/main.rs) – event loop setup, window creation
-- **App state machine**: [src/app.rs](src/app.rs#L16) – tick logic, event handling, subsystem coordination
-- **GPU compute orchestration**: [src/compute/pipeline.rs](src/compute/pipeline.rs#L9)
-- **Organism data & pooling**: [src/simulation/organism.rs](src/simulation/organism.rs)
-- **Rendering setup**: [src/render/mod.rs](src/render/mod.rs#L33)
-- **Compute shaders**: [src/compute/shaders/](src/compute/shaders/) – sense.wgsl, think.wgsl, act.wgsl, world.wgsl
-- **Technical spec**: [docs/DESIGN.md](docs/DESIGN.md) – comprehensive architecture + equations
-- **Determinism guide**: [docs/DETERMINISM.md](docs/DETERMINISM.md) – reproducibility guarantees
-- **Roadmap**: [docs/PLAN.md](docs/PLAN.md) – next features and known issues
-- **Build optimization**: [docs/BUILD_OPTIMIZATION.md](docs/BUILD_OPTIMIZATION.md) – faster builds guide
-- **Debugging guide**: [docs/DEBUGGING.md](docs/DEBUGGING.md) – comprehensive debugging procedures
+- **Entry point**: [src/main.rs](../src/main.rs) – event loop setup, window creation
+- **App state machine**: [src/app.rs](../src/app.rs) – tick logic, event handling, subsystem coordination
+- **GPU compute orchestration**: [src/compute/pipeline.rs](../src/compute/pipeline.rs)
+- **Organism data & pooling**: [src/simulation/organism.rs](../src/simulation/organism.rs)
+- **Rendering setup**: [src/render/mod.rs](../src/render/mod.rs)
+- **Compute shaders**: [src/compute/shaders/](../src/compute/shaders/) – sense.wgsl, think.wgsl, act.wgsl, world.wgsl
+- **Technical spec**: [docs/DESIGN.md](../docs/DESIGN.md) – comprehensive architecture + equations
+- **Determinism guide**: [docs/DETERMINISM.md](../docs/DETERMINISM.md) – reproducibility guarantees
+- **Roadmap**: [docs/PLAN.md](../docs/PLAN.md) – next features and known issues
+- **Build optimization**: [docs/BUILD_OPTIMIZATION.md](../docs/BUILD_OPTIMIZATION.md) – faster builds guide
+- **Debugging guide**: [docs/DEBUGGING.md](../docs/DEBUGGING.md) – comprehensive debugging procedures
+- **Audit prompt files**: [.github/prompts/](./prompts/) – reusable Copilot prompts for feature, config, and release audits
+- **Audit agent**: [.github/agents/repo-auditor.agent.md](./agents/repo-auditor.agent.md) – repo-specific audit specialist
 
 ---
 
@@ -268,19 +273,19 @@ cargo run -- --auto-exit 5       # Runs for 5 seconds and exits
 4. **"All organisms die at max_age"**: Check age_drain_factor is > 0 for gradual aging, or increase max_age
 5. **"Food not visible"**: Check food_max_per_cell is passed to renderer for proper normalization
 6. **"Food everywhere"**: Check world.wgsl hash function; use PCG hash not sin()
-7. **"Artifacts on screen"**: Camera zoom/pan math in [src/render/camera.rs](src/render/camera.rs)—verify viewport transform
+7. **"Artifacts on screen"**: Camera zoom/pan math in [src/render/camera.rs](../src/render/camera.rs)—verify viewport transform
 8. **Performance drops**: Profile GPU dispatch time vs rendering; may need to reduce initial_organisms or ray count
 
-**For detailed debugging, see [docs/DEBUGGING.md](docs/DEBUGGING.md)**
+**For detailed debugging, see [docs/DEBUGGING.md](../docs/DEBUGGING.md)**
 
 ---
 
 ## When Making Changes
 
-- **Changes to network architecture**: Update INPUT_DIM, HIDDEN_DIM, OUTPUT_DIM in [src/simulation/genome.rs](src/simulation/genome.rs); regenerate genomes
+- **Changes to network architecture**: Update INPUT_DIM, HIDDEN_DIM, OUTPUT_DIM in [src/simulation/genome.rs](../src/simulation/genome.rs); regenerate genomes
 - **New shader inputs/outputs**: Ensure kernel thread dispatches match organism count; update sense/think/act signatures
-- **UI additions**: Use egui context in [src/ui/mod.rs](src/ui/mod.rs); stats tracking in [src/ui/stats.rs](src/ui/stats.rs)
-- **User interaction tools**: Add keybinds in `handle_keyboard()` and mouse handlers in `handle_mouse_button()` in [src/app.rs](src/app.rs)
+- **UI additions**: Use egui context in [src/ui/mod.rs](../src/ui/mod.rs); stats tracking in [src/ui/stats.rs](../src/ui/stats.rs). Founder pool browsing/editing also lives in `ui/mod.rs`.
+- **User interaction tools**: Add keybinds in `handle_keyboard()` and mouse handlers in `handle_mouse_button()` in [src/app.rs](../src/app.rs)
 - **Performance optimization**: Profile with `cargo build --release` first; shader optimizations in wgsl files have highest impact
 
 ### Keybind Reference
@@ -298,6 +303,7 @@ cargo run -- --auto-exit 5       # Runs for 5 seconds and exits
 | F5 | Quick save |
 | F9 | Quick load |
 | I | Toggle inspector panel |
+| O | Toggle founder pool browser |
 | H | Toggle help overlay |
 | Esc | Toggle settings |
 | Click | Select organism |
@@ -310,10 +316,10 @@ cargo run -- --auto-exit 5       # Runs for 5 seconds and exits
 **Always keep documentation aligned with code changes.** When making changes to the codebase, you MUST:
 
 ### Update These Files When Relevant:
-1. **[docs/PLAN.md](docs/PLAN.md)** – Mark tasks as complete (`[x]`), add new tasks, update current status
-2. **[docs/DESIGN.md](docs/DESIGN.md)** – Update if architecture, data structures, or algorithms change
-3. **[.github/copilot-instructions.md](.github/copilot-instructions.md)** – Update module responsibilities, file paths, or workflows
-4. **[README.md](README.md)** – Update if build instructions, features, or usage changes
+1. **[docs/PLAN.md](../docs/PLAN.md)** – Mark tasks as complete (`[x]`), add new tasks, update current status
+2. **[docs/DESIGN.md](../docs/DESIGN.md)** – Update if architecture, data structures, or algorithms change
+3. **[.github/copilot-instructions.md](./copilot-instructions.md)** – Update module responsibilities, file paths, or workflows
+4. **[README.md](../README.md)** – Update if build instructions, features, or usage changes
 
 ### Checklist After Code Changes:
 - [ ] Did you add/remove/rename a file? → Update file references in all docs

@@ -163,7 +163,7 @@ async fn test_food_growth(device: &wgpu::Device, queue: &wgpu::Queue) {
     let mut results = Vec::new();
     results.push((0, initial_total));
     
-    for tick in 0..100 {
+    for tick in 0..NUM_TICKS {
         let config_data = create_config(tick, growth_rate, max_per_cell);
         queue.write_buffer(&config_buffer, 0, bytemuck::cast_slice(&config_data));
         
@@ -214,7 +214,7 @@ async fn test_food_growth(device: &wgpu::Device, queue: &wgpu::Queue) {
     }
 }
 
-async fn test_food_distribution(device: &wgpu::Device, queue: &wgpu::Queue) {
+async fn test_food_distribution(_device: &wgpu::Device, _queue: &wgpu::Queue) {
     // Test that food patches are well-distributed
     let size = (WORLD_WIDTH * WORLD_HEIGHT) as usize;
     

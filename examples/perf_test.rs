@@ -717,7 +717,7 @@ async fn benchmark_think_shader(device: &wgpu::Device, queue: &wgpu::Queue) -> D
     
     // Initialize NN weights with random values
     let weights: Vec<f32> = (0..(NUM_ORGANISMS * 438))
-        .map(|i| ((i as f32 * 0.001).sin() * 0.5))
+        .map(|i| (i as f32 * 0.001).sin() * 0.5)
         .collect();
     queue.write_buffer(&nn_weights_buffer, 0, bytemuck::cast_slice(&weights));
     
@@ -874,7 +874,7 @@ async fn benchmark_act_shader(device: &wgpu::Device, queue: &wgpu::Queue) -> Dur
     
     // Initialize actions
     let actions: Vec<f32> = (0..(NUM_ORGANISMS * 6))
-        .map(|i| ((i as f32 * 0.01).sin()))
+        .map(|i| (i as f32 * 0.01).sin())
         .collect();
     queue.write_buffer(&actions_buffer, 0, bytemuck::cast_slice(&actions));
     

@@ -13,6 +13,7 @@ use winit::{
 
 use crate::config::SimulationConfig;
 use crate::simulation::{Simulation, SaveState};
+use crate::simulation::genome::{Genome, HIDDEN_DIM, INPUT_DIM, OUTPUT_DIM};
 use crate::compute::{ComputePipeline, ExecutionTiming};
 use crate::render::Renderer;
 use crate::ui::Ui;
@@ -73,11 +74,12 @@ impl App {
     /// Create App with configuration and CLI options
     pub async fn new_with_config(
         window: Arc<Window>,
-        config: SimulationConfig,
+        mut config: SimulationConfig,
         auto_exit_seconds: u64,
         start_paused: bool,
         speed_multiplier: u32,
     ) -> Result<Self> {
+        config.sanitize();
         let size = window.inner_size();
         
         // Initialize wgpu
@@ -301,6 +303,9 @@ impl App {
                 // Quick save
                 self.quick_save();
             }
+            PhysicalKey::Code(KeyCode::F6) => {
+                self.export_survivor_bank(false);
+            }
             PhysicalKey::Code(KeyCode::F9) => {
                 // Quick load
                 self.quick_load();
@@ -312,6 +317,9 @@ impl App {
             PhysicalKey::Code(KeyCode::KeyH) => {
                 // Toggle help overlay
                 self.ui.toggle_help();
+            }
+            PhysicalKey::Code(KeyCode::KeyO) => {
+                self.ui.toggle_founders();
             }
             _ => {}
         }
@@ -368,6 +376,62 @@ impl App {
                 log::info!("Quick loaded from {:?} (tick {})", path, self.tick);
             }
             Err(e) => log::error!("Failed to quick load: {}", e),
+        }
+    }
+
+    pub fn persist_survivor_bank_on_exit(&self) {
+        self.export_survivor_bank(true);
+    }
+
+    fn export_survivor_bank(&self, shutdown: bool) {
+        if !self.config.bootstrap.enabled || (shutdown && !self.config.bootstrap.save_on_exit) {
+            return;
+        }
+
+        let Some(bank) = self
+            .simulation
+            .to_survivor_bank(self.tick, self.config.bootstrap.survivor_count as usize)
+        else {
+            if !shutdown {
+                log::warn!("No living organisms available for survivor-bank export");
+            }
+            return;
+        };
+
+        let path = self.config.bootstrap.path.clone();
+        let should_write = match crate::simulation::save_load::load_bootstrap_quality_score(&path) {
+            Ok(existing_score) => {
+                if bank.quality_score() > existing_score {
+                    true
+                } else {
+                    log::info!(
+                        "Skipped bootstrap export to {:?}: existing store is stronger (existing_score={:.1}, new_score={:.1})",
+                        path,
+                        existing_score,
+                        bank.quality_score()
+                    );
+                    false
+                }
+            }
+            Err(_) => true,
+        };
+
+        if should_write {
+            match crate::simulation::save_load::save_bootstrap_bank(
+                &path,
+                &bank,
+                "runtime_export",
+                "Runtime-exported founders selected from living organisms",
+            ) {
+                Ok(_) => {
+                    if shutdown {
+                        log::info!("Persisted bootstrap founders to {:?}", path);
+                    } else {
+                        log::info!("Exported bootstrap founders to {:?}", path);
+                    }
+                }
+                Err(error) => log::error!("Failed to save survivor bank to {:?}: {}", path, error),
+            }
         }
     }
     
@@ -538,9 +602,9 @@ impl App {
         
         if self.dragging {
             let delta = (new_pos - self.cursor_pos) / self.camera_zoom;
-            // Drag in same direction as mouse movement (subtract delta to move camera opposite)
+            // Move the camera opposite to the drag on both axes so the world tracks the cursor consistently.
             self.camera_pos.x -= delta.x;
-            self.camera_pos.y += delta.y; // Flip Y to match screen coords
+            self.camera_pos.y -= delta.y;
         }
         
         self.cursor_pos = new_pos;
@@ -655,6 +719,7 @@ impl App {
     fn get_selected_organism_data(&self) -> Option<crate::ui::SelectedOrganism> {
         let org_id = self.selected_organism?;
         let org = self.simulation.organisms.get(org_id)?;
+        let (nn_inputs, nn_outputs) = self.compute_neural_snapshot(org_id, org.genome_id);
         
         Some(crate::ui::SelectedOrganism {
             id: org_id,
@@ -669,11 +734,147 @@ impl App {
             reproduce_signal: org.reproduce_signal,
             genome_id: org.genome_id,
             species_id: org.species_id,
-            // Note: nn_inputs and nn_outputs would require GPU readback
-            // For now, use placeholders - we'll get reproduce_signal from the organism
-            nn_inputs: [0.0; 20],
-            nn_outputs: [0.0, 0.0, 0.0, org.reproduce_signal, 0.0, 0.0],
+            nn_inputs,
+            nn_outputs,
         })
+    }
+
+    fn compute_neural_snapshot(&self, org_id: u32, genome_id: u32) -> ([f32; INPUT_DIM], [f32; OUTPUT_DIM]) {
+        let Some(genome) = self.simulation.genomes.get(genome_id) else {
+            return ([0.0; INPUT_DIM], [0.0; OUTPUT_DIM]);
+        };
+
+        let inputs = self.compute_sensory_snapshot(org_id);
+        let outputs = self.forward_pass_snapshot(genome, &inputs);
+        (inputs, outputs)
+    }
+
+    fn compute_sensory_snapshot(&self, org_id: u32) -> [f32; INPUT_DIM] {
+        let mut sensory = [0.0; INPUT_DIM];
+        let Some(org) = self.simulation.organisms.get(org_id) else {
+            return sensory;
+        };
+
+        let fov = self.config.vision.fov_degrees.to_radians();
+        let half_fov = fov / 2.0;
+        let effective_vision_range = self.config.vision.range * org.morph_vision_mult;
+        let width = self.config.world.width as f32;
+        let height = self.config.world.height as f32;
+
+        for ray in 0..8usize {
+            let t = ray as f32 / 7.0;
+            let angle_offset = -half_fov + t * fov;
+            let ray_angle = org.rotation + angle_offset;
+            let ray_dir = Vec2::new(ray_angle.cos(), ray_angle.sin());
+
+            let mut hit_dist = 0.0;
+            let mut hit_type = 0.0;
+            let mut distance = 1.0;
+            while distance < effective_vision_range {
+                let sample_pos = org.position + ray_dir * distance;
+                let wrap_x = sample_pos.x.rem_euclid(width);
+                let wrap_y = sample_pos.y.rem_euclid(height);
+                let grid_x = wrap_x as u32;
+                let grid_y = wrap_y as u32;
+                let grid_idx = (grid_y * self.config.world.width + grid_x) as usize;
+
+                if self.simulation.world.obstacles[grid_idx] != 0 {
+                    hit_dist = 1.0 - (distance / effective_vision_range);
+                    hit_type = 0.25;
+                    break;
+                }
+
+                if self.simulation.world.food[grid_idx] > 0.5 {
+                    hit_dist = 1.0 - (distance / effective_vision_range);
+                    hit_type = 0.5;
+                    break;
+                }
+
+                distance += 1.0;
+            }
+
+            sensory[ray * 2] = hit_dist;
+            sensory[ray * 2 + 1] = hit_type;
+        }
+
+        sensory[16] = org.energy / self.config.energy.maximum;
+        sensory[17] = (org.age as f32 / 1000.0).min(1.0);
+        sensory[18] = org.velocity.length() / self.config.physics.max_speed;
+
+        let organism_count = self.simulation.organism_count();
+        let check_stride = (organism_count / 64).max(1);
+        let mut nearest_dist = self.config.vision.range;
+        let mut nearest_angle = 0.0;
+        let mut other_idx = 0;
+
+        while other_idx < organism_count {
+            if other_idx != org_id {
+                if let Some(other) = self.simulation.organisms.get(other_idx) {
+                    if other.is_alive() {
+                        let mut delta = other.position - org.position;
+                        if delta.x > width * 0.5 {
+                            delta.x -= width;
+                        }
+                        if delta.x < -width * 0.5 {
+                            delta.x += width;
+                        }
+                        if delta.y > height * 0.5 {
+                            delta.y -= height;
+                        }
+                        if delta.y < -height * 0.5 {
+                            delta.y += height;
+                        }
+
+                        let dist = delta.length();
+                        if dist < self.config.vision.range && dist < nearest_dist {
+                            nearest_dist = dist;
+                            nearest_angle = delta.y.atan2(delta.x) - org.rotation;
+                        }
+                    }
+                }
+            }
+
+            other_idx += check_stride;
+        }
+
+        if nearest_dist < self.config.vision.range {
+            let mut angle_norm = nearest_angle / std::f32::consts::PI;
+            if angle_norm > 1.0 {
+                angle_norm -= 2.0;
+            }
+            if angle_norm < -1.0 {
+                angle_norm += 2.0;
+            }
+            sensory[19] = angle_norm;
+        } else {
+            sensory[19] = 1.0;
+        }
+
+        sensory
+    }
+
+    fn forward_pass_snapshot(&self, genome: &Genome, sensory: &[f32; INPUT_DIM]) -> [f32; OUTPUT_DIM] {
+        let mut hidden = [0.0; HIDDEN_DIM];
+        for hidden_idx in 0..HIDDEN_DIM {
+            let mut sum = genome.biases_l1[hidden_idx];
+            for input_idx in 0..INPUT_DIM {
+                let weight_idx = input_idx * HIDDEN_DIM + hidden_idx;
+                sum += sensory[input_idx] * genome.weights_l1[weight_idx];
+            }
+            hidden[hidden_idx] = sum.max(0.0);
+        }
+
+        let mut output = [0.0; OUTPUT_DIM];
+        for output_idx in 0..OUTPUT_DIM {
+            let mut sum = genome.biases_l2[output_idx];
+            for hidden_idx in 0..HIDDEN_DIM {
+                let weight_idx = hidden_idx * OUTPUT_DIM + output_idx;
+                sum += hidden[hidden_idx] * genome.weights_l2[weight_idx];
+            }
+            output[output_idx] = sum.tanh();
+        }
+
+        output
     }
     
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {

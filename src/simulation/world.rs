@@ -75,8 +75,8 @@ impl World {
                     let dist = ((dx * dx + dy * dy) as f32).sqrt();
                     let max_dist = half_size as f32;
                     let falloff = 1.0 - (dist / max_dist).min(1.0);
-                    // Fill patches with substantial food (70-100% of max)
-                    let food_amount = config.food.max_per_cell * (0.7 + 0.3 * falloff);
+                    // Fill patches with moderate food so organisms still need to search.
+                    let food_amount = config.food.max_per_cell * (0.4 + 0.3 * falloff);
                     food[idx] = food[idx].max(food_amount as f32);
                 }
             }
@@ -228,5 +228,32 @@ impl World {
         let wx = ((x % self.width as f32) + self.width as f32) % self.width as f32;
         let wy = ((y % self.height as f32) + self.height as f32) % self.height as f32;
         self.get_biome(wx as u32, wy as u32)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::SeedableRng;
+    use rand_xoshiro::Xoshiro256PlusPlus;
+
+    #[test]
+    fn biome_generation_disabled_returns_normal_cells() {
+        let mut rng = Xoshiro256PlusPlus::seed_from_u64(21);
+        let biomes = World::generate_biomes_static(16, 16, 4, false, &mut rng);
+
+        assert_eq!(biomes.len(), 256);
+        assert!(biomes.iter().all(|&biome| biome == BiomeType::Normal as u8));
+    }
+
+    #[test]
+    fn biome_generation_enabled_creates_multiple_regions() {
+        let mut rng = Xoshiro256PlusPlus::seed_from_u64(22);
+        let biomes = World::generate_biomes_static(32, 32, 8, true, &mut rng);
+        let unique: std::collections::BTreeSet<u8> = biomes.iter().copied().collect();
+
+        assert_eq!(biomes.len(), 1024);
+        assert!(unique.len() >= 2);
+        assert!(unique.iter().all(|&biome| biome <= BiomeType::Harsh as u8));
     }
 }

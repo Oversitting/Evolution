@@ -1,0 +1,51 @@
+# Evolution Simulator Configuration for longer-run validation
+# Uses the founder pool, but with lower food pressure than the 10k baseline.
+
+[population]
+max_organisms = 4000
+initial_organisms = 160
+
+[energy]
+starting = 75.0
+maximum = 200.0
+passive_drain = 0.090
+max_age = 2000
+crowding_factor = 1.0
+age_drain_factor = 1.0
+
+[reproduction]
+threshold = 58.0
+cost = 38.0
+min_age = 90
+cooldown = 85
+signal_min = 0.3
+
+[mutation]
+rate = 0.05
+strength = 0.2
+
+[food]
+growth_rate = 0.0040
+max_per_cell = 10.0
+energy_value = 4.0
+effectiveness = 1.02
+initial_patches = 280
+patch_size = 10
+spawn_chance = 0.00000050
+spawn_amount = 1.0
+
+[world]
+width = 2048
+height = 2048
+
+[bootstrap]
+enabled = true
+path = "founder_pool.json"
+founder_count = 16
+survivor_count = 256
+load_on_start = true
+save_on_exit = true
+
+[system]
+food_readback_interval = 60
+diagnostic_interval = 60

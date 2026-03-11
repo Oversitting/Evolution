@@ -63,6 +63,12 @@ pub const BUTTON_ROUNDING: f32 = 4.0;
 /// Graph default height
 pub const GRAPH_HEIGHT: f32 = 80.0;
 
+/// Consistent outer margin for anchored UI panels
+pub const UI_MARGIN: f32 = 10.0;
+
+/// Reserved height for the combined top status/toolbar bar
+pub const TOP_BAR_HEIGHT: f32 = 92.0;
+
 // ============================================================================
 // Helper Functions
 // ============================================================================

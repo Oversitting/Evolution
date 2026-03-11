@@ -27,6 +27,7 @@ Check for:
 - Population staying stable (not crashing to 0)
 - Energy levels reasonable (not all 0 or all max)
 - Generation counter incrementing (reproduction working)
+- Config sanitation warnings such as forced `readback_interval=1`, clamped world size, or restored food capacity
 
 ### Key Metrics to Watch
 
@@ -162,6 +163,7 @@ cargo run --example repro_test --release
 1. Check food exists: `cargo run --example food_test` - verify green patches visible
 2. Check energy drain: Look at `passive_drain` in config.toml
 3. Check food energy value: `food.energy_value` might be too low
+4. Check startup logs for config sanitation warnings; a broken config may have been auto-clamped into a survivable but unintended state
 
 **Solutions**:
 ```toml

@@ -27,9 +27,9 @@ impl Default for SpeciesConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            distance_threshold: 8.0,  // Tuned for typical genome weight distributions
+            distance_threshold: 3.5,  // Keeps random founders from collapsing into a single species
             update_interval: 60,      // Every 60 ticks (1 second at 60 updates/sec)
-            max_species: 64,          // Reasonable limit for visualization
+            max_species: 256,         // High enough to represent startup founder diversity
         }
     }
 }
@@ -304,6 +304,7 @@ impl SpeciesManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::MorphologyConfig;
     use rand::SeedableRng;
     use rand_xoshiro::Xoshiro256PlusPlus;
     
@@ -313,8 +314,9 @@ mod tests {
         let mut manager = SpeciesManager::new(config);
         let mut genomes = GenomePool::new(10);
         let mut rng = Xoshiro256PlusPlus::seed_from_u64(42);
+        let morph = MorphologyConfig::default();
         
-        genomes.create_random_at(0, &mut rng);
+        genomes.create_random_at(0, &morph, &mut rng);
         
         let species_id = manager.assign_species(0, 1, &genomes);
         
@@ -331,10 +333,11 @@ mod tests {
         let mut manager = SpeciesManager::new(config);
         let mut genomes = GenomePool::new(10);
         let mut rng = Xoshiro256PlusPlus::seed_from_u64(42);
+        let morph = MorphologyConfig::default();
         
         // Create two genomes
-        genomes.create_random_at(0, &mut rng);
-        genomes.create_random_at(1, &mut rng);
+        genomes.create_random_at(0, &morph, &mut rng);
+        genomes.create_random_at(1, &morph, &mut rng);
         
         let sp1 = manager.assign_species(0, 1, &genomes);
         let sp2 = manager.assign_species(1, 1, &genomes);
@@ -343,5 +346,20 @@ mod tests {
         // unless they happen to be similar by chance
         assert!(sp1 > 0);
         assert!(sp2 > 0);
+    }
+
+    #[test]
+    fn default_threshold_splits_random_founders_into_multiple_species() {
+        let mut manager = SpeciesManager::new(SpeciesConfig::default());
+        let mut genomes = GenomePool::new(16);
+        let mut rng = Xoshiro256PlusPlus::seed_from_u64(42);
+        let morph = MorphologyConfig::default();
+
+        for genome_id in 0..10 {
+            genomes.create_random_at(genome_id, &morph, &mut rng);
+            manager.assign_species(genome_id, 0, &genomes);
+        }
+
+        assert!(manager.species_count() > 1);
     }
 }

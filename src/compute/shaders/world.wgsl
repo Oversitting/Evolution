@@ -160,6 +160,12 @@ fn hotspot_bonus(x: u32, y: u32, tick: u32, count: u32, radius: f32, intensity: 
     return bonus;
 }
 
+fn wrapped_food_at(x: u32, y: u32) -> f32 {
+    let wrapped_x = x % config.world_width;
+    let wrapped_y = y % config.world_height;
+    return food[wrapped_y * config.world_width + wrapped_x];
+}
+
 @compute @workgroup_size(8, 8)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let x = id.x;
@@ -199,10 +205,16 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         // Swamp and Harsh biomes don't affect food growth rate
     }
     
-    // Logistic food regrowth in existing food areas
-    // Food only grows where there's already some food (patches spread slowly)
-    if current_food > 0.01 {
-        let growth = effective_growth_rate * current_food * (1.0 - current_food / config.food_max_per_cell);
+    // Food regrowth is driven by local patch support rather than self-amplifying cell value.
+    // This keeps patches sustainable without letting total food inflate too aggressively.
+    let left = wrapped_food_at((x + config.world_width - 1u) % config.world_width, y);
+    let right = wrapped_food_at((x + 1u) % config.world_width, y);
+    let up = wrapped_food_at(x, (y + config.world_height - 1u) % config.world_height);
+    let down = wrapped_food_at(x, (y + 1u) % config.world_height);
+    let neighborhood_support = (current_food + left + right + up + down) / (5.0 * config.food_max_per_cell);
+
+    if neighborhood_support > 0.01 {
+        let growth = effective_growth_rate * neighborhood_support * (1.0 - current_food / config.food_max_per_cell);
         current_food += growth;
     }
     
